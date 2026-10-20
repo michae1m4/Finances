@@ -3,7 +3,7 @@
    Money — app logic. Reads the finance Sheet through Apps Script (read-only).
    Sections: helpers · data · filters · charts · screens · sheets · events · demo · start
    ============================================================ */
-const VERSION = 1;
+const VERSION = 2;
 
 /* Chart colors: the validated categorical set for dark surfaces (fixed order, never cycled).
    Color follows the category (its position in the Setup list), never its rank in the chart. */
