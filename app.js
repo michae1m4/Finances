@@ -3,7 +3,7 @@
    Money — app logic. Reads the finance Sheet through Apps Script (read-only).
    Sections: helpers · data · filters · charts · screens · sheets · events · demo · start
    ============================================================ */
-const VERSION = 4;
+const VERSION = 5;
 
 /* Chart colors: the validated categorical set for dark surfaces (fixed order, never cycled).
    Color follows the category (its position in the Setup list), never its rank in the chart. */
@@ -53,7 +53,7 @@ function niceScale(max) {
 const S = {
   demo: false, data: null, txs: [], cats: new Map(), expenseCats: [], accounts: [], bills: [], today: localToday(),
   tab: 'home', period: { id: 'thisMonth' }, catFilter: new Set(), account: '',
-  q: '', type: 'All', sort: 'new', limit: 60, tableView: false, updatedAt: 0, status: ''
+  q: '', type: 'All', sort: 'new', limit: 60, tableView: false, spendTable: true, incTable: false, updatedAt: 0, status: ''
 };
 const PERIODS = [
   { id: 'thisMonth', label: 'This month' }, { id: 'lastMonth', label: 'Last month' },
@@ -182,47 +182,11 @@ function barsChart(host, labels, series, tipFn) {
     });
   });
 }
-/* Two cumulative lines with a crosshair. a: current (to its length), b: previous */
-function linesChart(host, a, b, labelFn) {
-  const w = host.clientWidth || 340, h = 190, pad = { l: 38, r: 44, t: 10, b: 24 };
-  const iw = w - pad.l - pad.r, ih = h - pad.t - pad.b, N = Math.max(a.length, b.length);
-  const sc = niceScale(Math.max(0, ...a, ...b));
-  const x = i => pad.l + (N <= 1 ? 0 : i / (N - 1) * iw), y = v => pad.t + ih - v / sc.max * ih;
-  const path = arr => arr.map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ',' + y(v).toFixed(1)).join('');
-  let g = '';
-  sc.ticks.forEach(v => { g += '<line class="gl" x1="' + pad.l + '" x2="' + (w - pad.r) + '" y1="' + y(v) + '" y2="' + y(v) + '"/><text class="ax" x="' + (pad.l - 8) + '" y="' + (y(v) + 4) + '" text-anchor="end">' + kfmt(v) + '</text>'; });
-  [0, Math.floor((N - 1) / 2), N - 1].forEach((i, k) => { g += '<text class="ax" x="' + x(i) + '" y="' + (h - 6) + '" text-anchor="' + (k === 0 ? 'start' : k === 2 ? 'end' : 'middle') + '">' + esc(labelFn(i)) + '</text>'; });
-  if (b.length) g += '<path d="' + path(b) + '" fill="none" stroke="' + C_PREV + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
-  if (a.length) {
-    g += '<path d="' + path(a) + ' L' + x(a.length - 1) + ',' + y(0) + ' L' + x(0) + ',' + y(0) + 'Z" fill="' + C_SPEND + '" opacity=".10"/>';
-    g += '<path d="' + path(a) + '" fill="none" stroke="' + C_SPEND + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
-    const ex = x(a.length - 1), ey = y(a[a.length - 1]);
-    g += '<circle cx="' + ex + '" cy="' + ey + '" r="5" fill="' + C_SPEND + '" stroke="#151517" stroke-width="2"/>';
-    g += '<text class="lbl" x="' + Math.min(ex + 10, w - 2) + '" y="' + (ey + 4) + '" text-anchor="' + (ex + 10 > w - pad.r + 20 ? 'end' : 'start') + '">' + kfmt(a[a.length - 1]) + '</text>';
-  }
-  g += '<g id="xh" class="hidden"><line class="gl" id="xhl" y1="' + pad.t + '" y2="' + (pad.t + ih) + '"/><circle id="xha" r="4.5" fill="' + C_SPEND + '" stroke="#151517" stroke-width="2"/><circle id="xhb" r="4.5" fill="' + C_PREV + '" stroke="#151517" stroke-width="2"/></g>';
-  g += '<rect class="hit" id="xhit" x="' + pad.l + '" y="' + pad.t + '" width="' + iw + '" height="' + ih + '"/>';
-  host.innerHTML = '<svg class="chart" viewBox="0 0 ' + w + ' ' + h + '" role="img">' + g + '</svg>';
-  const svg = host.firstChild, hit = $('#xhit', host);
-  const move = e => {
-    const r = svg.getBoundingClientRect(), px = (e.clientX - r.left) / r.width * w;
-    const i = Math.max(0, Math.min(N - 1, Math.round((px - pad.l) / iw * (N - 1))));
-    $('#xh', host).classList.remove('hidden');
-    const xx = x(i); $('#xhl', host).setAttribute('x1', xx); $('#xhl', host).setAttribute('x2', xx);
-    const ca = $('#xha', host), cb = $('#xhb', host);
-    if (i < a.length) { ca.setAttribute('cx', xx); ca.setAttribute('cy', y(a[i])); ca.style.display = ''; } else ca.style.display = 'none';
-    if (i < b.length) { cb.setAttribute('cx', xx); cb.setAttribute('cy', y(b[i])); cb.style.display = ''; } else cb.style.display = 'none';
-    showTip('<b>' + esc(labelFn(i)) + '</b>' +
-      (i < a.length ? '<i style="background:' + C_SPEND + '"></i>This period ' + m0(a[i]) + '<br>' : '') +
-      (i < b.length ? '<i style="background:' + C_PREV + '"></i>Previous ' + m0(b[i]) : ''), e.clientX, e.clientY);
-  };
-  hit.addEventListener('pointermove', move); hit.addEventListener('pointerdown', move);
-  hit.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') { hideTip(); $('#xh', host).classList.add('hidden'); } });
-}
 /* Donut. items: [{name,value,color}] */
-function donut(host, items, total, onPick) {
+function donut(host, items, total, onPick, opts) {
+  opts = opts || {};
   const size = 280, cx = size / 2, r = 104, sw = 26;
-  let g = '', acc = 0;
+  let g = '', hits = '', acc = 0;
   const pt = a => [cx + r * Math.sin(a), cx - r * Math.cos(a)];
   items.forEach((it, i) => {
     const frac = it.value / total, a0 = acc * 2 * Math.PI, a1 = (acc + frac) * 2 * Math.PI; acc += frac;
@@ -232,11 +196,23 @@ function donut(host, items, total, onPick) {
     if (frac >= 0.999) { d = 'M' + cx + ',' + (cx - r) + 'A' + r + ',' + r + ' 0 1 1 ' + (cx - .01) + ',' + (cx - r); }
     else { const p0 = pt(s), p1 = pt(e); d = 'M' + p0[0].toFixed(2) + ',' + p0[1].toFixed(2) + 'A' + r + ',' + r + ' 0 ' + (e - s > Math.PI ? 1 : 0) + ' 1 ' + p1[0].toFixed(2) + ',' + p1[1].toFixed(2); }
     g += '<path class="seg-arc" data-i="' + i + '" d="' + d + '" fill="none" stroke="' + it.color + '" stroke-width="' + sw + '"/>';
+    hits += '<path class="seg-hit" data-i="' + i + '" d="' + d + '" fill="none" stroke="transparent" stroke-width="46"/>';
   });
-  g += '<text class="ctr-n" x="' + cx + '" y="' + (cx + 4) + '" text-anchor="middle">' + m0(total) + '</text><text class="ctr-l" x="' + cx + '" y="' + (cx + 24) + '" text-anchor="middle">spent</text>';
+  g += hits;
+  g += '<text class="ctr-n" x="' + cx + '" y="' + (cx + 4) + '" text-anchor="middle">' + m0(total) + '</text><text class="ctr-l" x="' + cx + '" y="' + (cx + 24) + '" text-anchor="middle">' + (opts.label || 'spent') + '</text>';
   host.innerHTML = '<svg class="chart" viewBox="0 0 ' + size + ' ' + size + '" role="img">' + g + '</svg>';
-  host.querySelectorAll('.seg-arc').forEach(p => {
-    const it = items[+p.dataset.i];
+  host.querySelectorAll('.seg-hit').forEach(p => {
+    const i = +p.dataset.i, it = items[i];
+    if (opts.tipFn) {
+      /* tap a slice: the info box appears in one fixed spot; tap it again to hide, tap another slice to switch */
+      p.addEventListener('click', () => {
+        if (tipOwner && tipOwner.host === host && tipOwner.i === i) { hideTip(); return; }
+        const hr = host.getBoundingClientRect();
+        showTipPinned(opts.tipFn(it), hr.left + hr.width / 2, hr.top + 4);
+        tipOwner = { host: host, i: i };
+      });
+      return;
+    }
     p.addEventListener('pointerenter', e => showTip('<b>' + esc(it.name) + '</b>' + m2(it.value) + ' · ' + Math.round(it.value / total * 100) + '%', e.clientX, e.clientY));
     p.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') hideTip(); });
     p.addEventListener('click', () => { hideTip(); onPick(it.name); });
@@ -286,13 +262,6 @@ function monthlyData() {
   const exp = keys.map(k => sumBy(f.filter(t => monthKey(t.date) === k), 'Expense'));
   return { keys, inc, exp };
 }
-function cumulative(range, until) {
-  const f = S.txs.filter(t => t.type === 'Expense' && passes(t) && inR(t, range));
-  const n = diffDays(range[0], until) + 1, out = []; let run = 0;
-  for (let i = 0; i < n; i++) { const d = addDays(range[0], i); f.forEach(t => { if (t.date === d) run += t.amount; }); out.push(run); }
-  return out;
-}
-
 function renderHome() {
   const r = periodRange(S.period), pr = prevRange(S.period, r);
   const cur = sel(r), prev = pr ? sel(pr) : null;
@@ -301,7 +270,6 @@ function renderHome() {
   const byCat = new Map(); cur.forEach(t => { if (t.type === 'Expense') byCat.set(t.category, (byCat.get(t.category) || 0) + t.amount); });
   const top = Array.from(byCat.entries()).sort((a, b) => b[1] - a[1]);
   const big = cur.filter(t => t.type === 'Expense').sort((a, b) => b.amount - a.amount)[0];
-  const showCum = days <= 93;
   const el = $('#homeView');
   el.innerHTML = header('Home', periodLabel(S.period) + ' · ' + rangeText(r)) + filterBar() +
     '<div class="card hero"><div class="cap">Spent</div><div class="hero-num">' + m0(spent) + '</div>' + deltaPill(spent, prev ? sumBy(prev, 'Expense') : null, true, 'Across the selected period') + '</div>' +
@@ -310,18 +278,16 @@ function renderHome() {
     '<div class="tile"><div class="cap">Savings rate</div><div class="v num">' + (rate == null ? '–' : Math.round(rate * 100) + '%') + '</div></div></div>' +
     '<div class="card"><div class="cardhead"><h2>Income vs spending</h2><button class="chip small" data-act="toggleTable">' + (S.tableView ? 'Chart' : 'Table') + '</button></div><div id="barsHost"></div>' +
     '<div class="legend"><span><i style="background:' + C_INCOME + '"></i>Income</span><span><i style="background:' + C_SPEND + '"></i>Spending</span></div></div>' +
-    (showCum ? '<div class="card"><div class="cardhead tight"><h2>Spending pace</h2></div><div class="sub" style="margin-bottom:10px">Running total, day by day</div><div id="cumHost"></div>' +
-      '<div class="legend"><span><i style="background:' + C_SPEND + '"></i>This period</span>' + (pr ? '<span><i style="background:' + C_PREV + '"></i>Previous</span>' : '') + '</div></div>'
-      : '<div class="card"><div class="cardhead tight"><h2>Monthly average</h2></div><div class="hero-num" style="font-size:34px;margin:6px 0 2px">' + m0(spent / monthsIn(r)) + '</div><div class="sub">spent per month over this period</div></div>') +
+    catCard('spendCard', 'Spending by category', S.spendTable) + catCard('incCard', 'Income by category', S.incTable) +
     '<div class="card"><div class="cardhead"><h2>Top categories</h2><button class="chip small" data-act="tab" data-v="spend">See all</button></div><div class="list">' +
     (top.length ? top.slice(0, 5).map(c => catRow(c[0], c[1], spent, r, false)).join('') : '<div class="empty">No spending in this period.</div>') + '</div></div>' +
     '<div class="card"><div class="cardhead"><h2>Highlights</h2></div><div class="list">' +
     hl('Average per day', m2(spent / days)) + hl('Transactions', String(cur.filter(t => t.type === 'Expense').length)) +
     (big ? hl('Largest purchase', m2(big.amount) + ' · ' + esc(big.description)) : '') + '</div></div>' + footer();
-  drawHomeCharts(r, pr, showCum);
+  drawHomeCharts(cur, inc, spent);
 }
 const hl = (a, b) => '<div class="item"><div class="mid"><div class="t" style="font-weight:500;color:var(--muted);font-size:15px">' + a + '</div></div><div class="r"><div class="a num" style="font-size:15px">' + b + '</div></div></div>';
-function drawHomeCharts(r, pr, showCum) {
+function drawHomeCharts(cur, inc, spent) {
   const md = monthlyData(), host = $('#barsHost');
   if (S.tableView) {
     host.innerHTML = '<table class="tbl"><tr><th>Month</th><th>Income</th><th>Spending</th><th>Net</th></tr>' +
@@ -330,13 +296,35 @@ function drawHomeCharts(r, pr, showCum) {
     barsChart(host, md.keys.map(mLabel), [{ name: 'Income', color: C_INCOME, values: md.inc }, { name: 'Spending', color: C_SPEND, values: md.exp }],
       i => '<b>' + mLabelFull(md.keys[i]) + '</b><i style="background:' + C_INCOME + '"></i>Income ' + m2(md.inc[i]) + '<br><i style="background:' + C_SPEND + '"></i>Spending ' + m2(md.exp[i]) + '<br>Net ' + m2(md.inc[i] - md.exp[i]));
   }
-  if (showCum) {
-    const until = r[1] < S.today ? r[1] : S.today;
-    const a = cumulative(r, until);
-    let b = [];
-    if (pr) { const pf = S.period.id === 'thisMonth' ? [pr[0], pr[0].slice(0, 7) + '-' + dim(pr[0].slice(0, 7))] : pr; b = cumulative(pf, pf[1]); }
-    linesChart($('#cumHost'), a, b, i => shortDate(addDays(r[0], i)));
+  drawCatBreakdown('spendCard', S.spendTable, cur, 'Expense', spent, inc);
+  drawCatBreakdown('incCard', S.incTable, cur, 'Income', inc, inc);
+}
+
+/* Spending / income by category: a table or a donut, with the total in the middle */
+const pct1 = v => (v * 100).toFixed(1) + '%';
+function catCard(id, title, asTable) {
+  return '<div class="card" id="' + id + '"><div class="cardhead"><h2>' + title + '</h2><button class="chip small" data-act="' + (id === 'spendCard' ? 'toggleSpendTable' : 'toggleIncTable') + '">' + (asTable ? 'Chart' : 'Table') + '</button></div><div class="bd"></div></div>';
+}
+function drawCatBreakdown(id, asTable, cur, type, total, income) {
+  const host = $('#' + id + ' .bd'), isSpend = type === 'Expense';
+  const by = new Map(); cur.forEach(t => { if (t.type === type) by.set(t.category, (by.get(t.category) || 0) + t.amount); });
+  const incomeOrder = (S.data.categories || []).filter(c => c.group === 'Income').map(c => c.name);
+  const colorOf = n => isSpend ? catColor(n, 'Expense') : (PALETTE[incomeOrder.indexOf(n)] || REST);
+  const items = Array.from(by.entries()).map(e => ({ name: e[0], value: e[1], color: colorOf(e[0]) })).sort((x, y) => y.value - x.value);
+  if (!items.length) { host.innerHTML = '<div class="empty">No ' + (isSpend ? 'spending' : 'income') + ' in this period.</div>'; return; }
+  const ofIncome = v => income > 0 ? pct1(v / income) : '–';
+  if (asTable) {
+    host.innerHTML = '<table class="tbl"><tr><th>Category</th><th>' + (isSpend ? 'Spent' : 'Income') + '</th><th>' + (isSpend ? '% of income' : '% of total') + '</th></tr>' +
+      items.map(it => '<tr><td><span class="dot" style="display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:8px;background:' + it.color + '"></span>' + esc(it.name) + '</td><td>' + m2(it.value) + '</td><td>' + (isSpend ? ofIncome(it.value) : pct1(it.value / total)) + '</td></tr>').join('') +
+      '<tr class="total"><td>Total</td><td>' + m2(total) + '</td><td>' + (isSpend ? ofIncome(total) : '100.0%') + '</td></tr></table>' +
+      (isSpend ? '<div class="sub" style="margin-top:10px">Percent of the income in this period.' + (income > 0 ? '' : ' There is no income in this period.') + '</div>' : '');
+    return;
   }
+  host.innerHTML = '<div class="donutwrap"></div><div class="legend" style="justify-content:center">' + items.map(it => '<span><i style="background:' + it.color + '"></i>' + esc(it.name) + '</span>').join('') + '</div>';
+  donut($('.donutwrap', host), items, total, null, {
+    label: isSpend ? 'spent' : 'income',
+    tipFn: it => '<b>' + esc(it.name) + '</b>' + m2(it.value) + '<br>' + pct1(it.value / total) + ' of ' + (isSpend ? 'spending' : 'income') + (isSpend && income > 0 ? '<br>' + ofIncome(it.value) + ' of income' : '')
+  });
 }
 
 function catRow(name, value, total, r, withBudget) {
@@ -567,6 +555,8 @@ document.addEventListener('click', e => {
     case 'closeSheet': closeSheet(); break;
     case 'openCat': openCategory(v); break;
     case 'drillSort': openCategory(drill.name, v); break;
+    case 'toggleSpendTable': S.spendTable = !S.spendTable; render(); break;
+    case 'toggleIncTable': S.incTable = !S.incTable; render(); break;
     case 'toggleTable': S.tableView = !S.tableView; render(); break;
     case 'type': S.type = v; S.limit = 60; renderActivity(true); break;
     case 'sort': S.sort = v; renderActivity(true); break;

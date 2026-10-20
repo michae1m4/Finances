@@ -129,6 +129,7 @@ input::placeholder { color: #636366; }
 
 table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
 .tbl th { text-align: right; font-weight: 600; color: var(--muted); padding: 6px 0; font-size: 12px; }
+.tbl tr.total td { font-weight: 700; border-top: 1px solid rgba(255,255,255,.18); }
 .tbl td { text-align: right; padding: 9px 0; border-top: 1px solid var(--line); }
 .tbl th:first-child, .tbl td:first-child { text-align: left; }
 
@@ -141,6 +142,7 @@ svg.chart { display: block; width: 100%; height: auto; overflow: visible; touch-
 .chart .ctr-l { fill: var(--muted); font-size: 12px; }
 .chart .hit { fill: transparent; touch-action: pan-y; }
 .chart .hit.bar { cursor: pointer; }
+.chart .seg-hit { touch-action: pan-y; cursor: pointer; }
 .chart, .chart * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .chart .seg-arc { cursor: pointer; transition: opacity .15s; }
 .chart .dim { opacity: .35; }
