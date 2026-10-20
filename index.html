@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Money">
+  <meta name="theme-color" content="#000000">
+  <link rel="apple-touch-icon" href="icon.png">
+  <title>Money</title>
+  <link rel="stylesheet" href="styles.css?v=1">
+</head>
+<body>
+  <!-- first-run: paste the key -->
+  <main id="setupView" class="view hidden">
+    <h1>Money</h1>
+    <p class="empty">Enter the key you saved as API_KEY in your Apps Script project. It stays on this device.</p>
+    <div class="card">
+      <label for="keyInput">Key</label>
+      <input id="keyInput" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Your API key">
+      <div class="actions">
+        <button class="full" data-act="saveKey">Connect</button>
+      </div>
+      <div id="setupMsg" class="msg"></div>
+    </div>
+    <button class="secondary full" data-act="demo">Try it with demo data</button>
+  </main>
+
+  <div id="app" class="hidden">
+    <main id="homeView" class="view"></main>
+    <main id="spendView" class="view hidden"></main>
+    <main id="activityView" class="view hidden"></main>
+    <main id="upcomingView" class="view hidden"></main>
+
+    <nav class="tabs" aria-label="Sections">
+      <button data-act="tab" data-v="home" class="on">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4l8 7.2V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z"/></svg>
+        <span>Overview</span>
+      </button>
+      <button data-act="tab" data-v="spend">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9h-9z"/><path d="M14.5 2.6A9 9 0 0 1 21.4 9.5h-6.9z"/></svg>
+        <span>Spending</span>
+      </button>
+      <button data-act="tab" data-v="activity">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.5h14M5 12h14M5 17.5h9" /></svg>
+        <span>Activity</span>
+      </button>
+      <button data-act="tab" data-v="upcoming">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5.5" width="16" height="14.5" rx="3"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/></svg>
+        <span>Upcoming</span>
+      </button>
+    </nav>
+  </div>
+
+  <div id="sheetWrap" class="sheetwrap hidden">
+    <div class="backdrop" data-act="closeSheet"></div>
+    <div class="sheet" role="dialog" aria-modal="true">
+      <div class="grab"></div>
+      <div id="sheetBody"></div>
+    </div>
+  </div>
+  <div id="tip" class="tip hidden" role="status"></div>
+
+  <script src="config.js?v=1"></script>
+  <script src="app.js?v=1"></script>
+</body>
+</html>
