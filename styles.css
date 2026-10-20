@@ -140,6 +140,7 @@ svg.chart { display: block; width: 100%; height: auto; overflow: visible; touch-
 .chart .ctr-n { fill: var(--text); font-size: 26px; font-weight: 800; letter-spacing: -0.6px; }
 .chart .ctr-l { fill: var(--muted); font-size: 12px; }
 .chart .hit { fill: transparent; touch-action: pan-y; }
+.chart .hit.bar { cursor: pointer; }
 .chart, .chart * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .chart .seg-arc { cursor: pointer; transition: opacity .15s; }
 .chart .dim { opacity: .35; }
@@ -175,7 +176,8 @@ svg.chart { display: block; width: 100%; height: auto; overflow: visible; touch-
 #sheetBody.footed { padding-bottom: 44px; }
 #sheetFoot { position: relative; flex: none; padding: 12px 20px calc(env(safe-area-inset-bottom) + 18px); background: #1a1a1d; }
 #sheetFoot::before { content: ''; position: absolute; left: 0; right: 0; top: -40px; height: 40px; pointer-events: none; background: linear-gradient(to bottom, rgba(26,26,29,0), #1a1a1d); }
-.grabzone { flex: none; padding: 12px 0 16px; touch-action: none; cursor: grab; }
+.shead { touch-action: none; padding: 8px 0 16px; margin-bottom: 0; }
+.grabzone { flex: none; padding: 14px 0 18px; touch-action: none; cursor: grab; }
 @keyframes up { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
 .grab { width: 40px; height: 5px; border-radius: 99px; background: #3a3a3e; margin: 0 auto; }
 .opt { display: flex; align-items: center; justify-content: space-between; padding: 15px 4px; border-top: 1px solid var(--line); font-size: 17px; font-weight: 500; cursor: pointer; }

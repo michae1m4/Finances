@@ -3,7 +3,7 @@
    Money — app logic. Reads the finance Sheet through Apps Script (read-only).
    Sections: helpers · data · filters · charts · screens · sheets · events · demo · start
    ============================================================ */
-const VERSION = 3;
+const VERSION = 4;
 
 /* Chart colors: the validated categorical set for dark surfaces (fixed order, never cycled).
    Color follows the category (its position in the Setup list), never its rank in the chart. */
@@ -131,7 +131,16 @@ function showTip(html, x, y) {
   if (top < 8) top = y + 18;
   tip.style.left = left + 'px'; tip.style.top = top + 'px';
 }
-const hideTip = () => tip.classList.add('hidden');
+let tipOwner = null;
+const hideTip = () => { tip.classList.add('hidden'); tipOwner = null; };
+/* tooltip pinned at a fixed spot: centred on cx, at the top of the chart */
+function showTipPinned(html, cx, top) {
+  tip.innerHTML = html; tip.classList.remove('hidden');
+  const w = tip.offsetWidth;
+  tip.style.left = Math.max(8, Math.min(innerWidth - w - 8, cx - w / 2)) + 'px';
+  tip.style.top = top + 'px';
+}
+addEventListener('scroll', () => { if (tipOwner) hideTip(); }, { passive: true, capture: true });
 document.addEventListener('pointerdown', e => { if (!e.target.closest('.chart')) hideTip(); });
 
 /* ---------- charts (plain SVG) ---------- */
@@ -156,12 +165,21 @@ function barsChart(host, labels, series, tipFn) {
       if (bh > 0.5) g += '<path d="' + barPath(cx - total / 2 + k * (bw + 2), y(v), bw, bh, 4) + '" fill="' + s.color + '"/>';
     });
     if (n <= 8 || i % 2 === 0 || i === n - 1) g += '<text class="ax" x="' + cx + '" y="' + (h - 6) + '" text-anchor="middle">' + esc(lb) + '</text>';
-    g += '<rect class="hit" data-i="' + i + '" x="' + (cx - band / 2) + '" y="' + pad.t + '" width="' + band + '" height="' + ih + '"/>';
+    /* tap targets are the bars themselves, so empty space above them scrolls normally */
+    series.forEach((s, k) => {
+      const bh = Math.max(s.values[i] / sc.max * ih, s.values[i] > 0 ? 14 : 0);
+      if (bh > 0) g += '<rect class="hit bar" data-i="' + i + '" x="' + (cx - total / 2 + k * (bw + 2)) + '" y="' + (pad.t + ih - bh) + '" width="' + (bw + (k < series.length - 1 ? 2 : 0)) + '" height="' + bh + '"/>';
+    });
   });
   host.innerHTML = '<svg class="chart" viewBox="0 0 ' + w + ' ' + h + '" role="img">' + g + '</svg>';
-  host.querySelectorAll('.hit').forEach(r => {
-    const go = e => { showTip(tipFn(+r.dataset.i), e.clientX, e.clientY); };
-    r.addEventListener('pointerenter', go); r.addEventListener('pointerdown', go); r.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') hideTip(); });
+  host.querySelectorAll('.hit.bar').forEach(r => {
+    r.addEventListener('click', () => {
+      const i = +r.dataset.i;
+      if (tipOwner && tipOwner.host === host && tipOwner.i === i) { hideTip(); return; }
+      const hr = host.getBoundingClientRect();
+      showTipPinned(tipFn(i), hr.left + pad.l + band * (i + .5), hr.top + 2);
+      tipOwner = { host: host, i: i };
+    });
   });
 }
 /* Two cumulative lines with a crosshair. a: current (to its length), b: previous */
@@ -449,31 +467,42 @@ function openSheet(html, foot) {
   $('#sheetWrap').classList.remove('hidden'); body.scrollTop = 0;
 }
 function closeSheet() { $('#sheetWrap').classList.add('hidden'); resetSheetStyle(); hideTip(); }
-/* drag the grey handle down to dismiss */
+/* drag down from the handle or the heading area (anything above the first option) to dismiss */
 (function sheetDrag() {
-  const sheet = $('.sheet'), back = $('#sheetWrap .backdrop'), zone = $('#grabZone');
-  let y0 = 0, t0 = 0, dy = 0, on = false;
-  zone.addEventListener('pointerdown', e => { on = true; y0 = e.clientY; t0 = e.timeStamp; dy = 0; zone.setPointerCapture(e.pointerId); sheet.style.animation = 'none'; sheet.style.transition = 'none'; });
-  zone.addEventListener('pointermove', e => {
-    if (!on) return;
-    dy = Math.max(0, e.clientY - y0);
+  const sheet = $('.sheet'), back = $('#sheetWrap .backdrop');
+  let st = null, dy = 0;
+  sheet.addEventListener('pointerdown', e => {
+    if (!e.target.closest('#grabZone, .shead')) return;
+    st = { x: e.clientX, y: e.clientY, t: e.timeStamp, id: e.pointerId, drag: false }; dy = 0;
+  });
+  sheet.addEventListener('pointermove', e => {
+    if (!st || e.pointerId !== st.id) return;
+    const mx = e.clientX - st.x, my = e.clientY - st.y;
+    if (!st.drag) {
+      if (Math.abs(my) < 8 && Math.abs(mx) < 8) return;
+      if (my > 0 && my > Math.abs(mx)) { st.drag = true; try { sheet.setPointerCapture(e.pointerId); } catch (x) { /* ignore */ } sheet.style.animation = 'none'; sheet.style.transition = 'none'; }
+      else { st = null; return; }
+    }
+    dy = Math.max(0, my);
     sheet.style.transform = 'translateY(' + dy + 'px)';
     back.style.opacity = String(Math.max(0, 1 - dy / Math.max(1, sheet.offsetHeight)));
   });
   const end = e => {
-    if (!on) return; on = false;
+    if (!st) return;
+    const was = st.drag, t0 = st.t; st = null;
+    if (!was) return;
     const v = dy / Math.max(1, e.timeStamp - t0);
     if (dy > 110 || (v > 0.6 && dy > 30)) { sheet.style.transition = 'transform .2s ease-in'; sheet.style.transform = 'translateY(100%)'; back.style.transition = 'opacity .2s'; back.style.opacity = '0'; setTimeout(() => { back.style.transition = ''; closeSheet(); }, 200); }
     else { sheet.style.transition = 'transform .2s ease-out'; sheet.style.transform = ''; back.style.opacity = ''; }
   };
-  zone.addEventListener('pointerup', end); zone.addEventListener('pointercancel', end);
+  sheet.addEventListener('pointerup', end); sheet.addEventListener('pointercancel', end);
 })();
 let pend = { id: 'thisMonth' };
 function markPeriod() { document.querySelectorAll('#sheetBody .opt[data-p]').forEach(o => o.classList.toggle('on', o.dataset.p === pend.id)); }
 function pickPeriod() {
   const c = S.period, r = periodRange(c);
   pend = { id: c.id };
-  openSheet('<h2 style="margin-bottom:6px">Time period</h2>' +
+  openSheet('<div class="shead"><h2>Time period</h2></div>' +
     PERIODS.map(p => '<div class="opt" data-p="' + p.id + '" data-act="setPeriod" data-v="' + p.id + '">' + p.label + '<span class="ck"></span></div>').join('') +
     '<div class="opt" data-p="custom" data-act="setPeriod" data-v="custom">Custom range<span class="ck"></span></div>' +
     '<div class="daterow"><div><label>From</label><input type="date" id="dFrom" value="' + (c.from || r[0]) + '"></div><div><label>To</label><input type="date" id="dTo" value="' + (c.to || r[1]) + '"></div></div>',
@@ -481,12 +510,12 @@ function pickPeriod() {
   markPeriod();
 }
 function pickCats() {
-  openSheet('<div class="cardhead"><h2>Categories</h2><button class="chip small" data-act="clearCats">Clear</button></div>' +
+  openSheet('<div class="cardhead shead"><h2>Categories</h2><button class="chip small" data-act="clearCats">Clear</button></div>' +
     (S.data.categories || []).map(c => '<div class="opt' + (S.catFilter.has(c.name) ? ' on' : '') + '" data-act="toggleCat" data-v="' + esc(c.name) + '"><span style="display:flex;align-items:center;gap:10px"><span class="dot" style="width:10px;height:10px;border-radius:50%;background:' + catColor(c.name, c.group) + '"></span>' + esc(c.name) + '</span><span class="ck"></span></div>').join('') +
     '', '<button class="full" data-act="closeSheet">Done</button>');
 }
 function pickAcct() {
-  openSheet('<h2 style="margin-bottom:6px">Account</h2><div class="opt' + (!S.account ? ' on' : '') + '" data-act="setAcct" data-v="">All accounts<span class="ck"></span></div>' +
+  openSheet('<div class="shead"><h2>Account</h2></div><div class="opt' + (!S.account ? ' on' : '') + '" data-act="setAcct" data-v="">All accounts<span class="ck"></span></div>' +
     S.accounts.map(a => '<div class="opt' + (S.account === a ? ' on' : '') + '" data-act="setAcct" data-v="' + esc(a) + '">' + esc(a) + '<span class="ck"></span></div>').join(''));
 }
 let drill = { name: '', sort: 'new' };
@@ -496,7 +525,7 @@ function openCategory(name, sort) {
   const all = S.txs.filter(t => t.category === name && inR(t, r) && (!S.account || t.account === S.account));
   const total = all.reduce((s, t) => s + t.amount, 0), color = catColor(name, type);
   const list = all.slice().sort(drill.sort === 'new' ? (a, b) => a.date < b.date ? 1 : -1 : (a, b) => b.amount - a.amount);
-  openSheet('<div class="cardhead tight"><div style="display:flex;align-items:center;gap:10px;min-width:0"><span class="dot" style="width:12px;height:12px;border-radius:50%;background:' + color + ';flex:none"></span><h2 style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(name) + '</h2></div><button class="chip small" data-act="closeSheet">Close</button></div>' +
+  openSheet('<div class="cardhead tight shead"><div style="display:flex;align-items:center;gap:10px;min-width:0"><span class="dot" style="width:12px;height:12px;border-radius:50%;background:' + color + ';flex:none"></span><h2 style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(name) + '</h2></div><button class="chip small" data-act="closeSheet">Close</button></div>' +
     '<div class="sub" style="margin-bottom:12px">' + periodLabel(S.period) + ' · ' + rangeText(r) + '</div>' +
     '<div class="tiles"><div class="tile"><div class="cap">Total</div><div class="v num">' + m0(total) + '</div></div><div class="tile"><div class="cap">Transactions</div><div class="v num">' + all.length + '</div></div><div class="tile"><div class="cap">Average</div><div class="v num">' + m0(all.length ? total / all.length : 0) + '</div></div></div>' +
     '<div class="card"><div class="cardhead tight"><h2>Over time</h2></div><div id="drillHost"></div></div>' +
@@ -512,6 +541,7 @@ function openCategory(name, sort) {
 /* ---------- navigation + events ---------- */
 function render() {
   if (!S.data) return;
+  hideTip();
   const t = S.tab;
   ['home', 'spend', 'activity', 'upcoming'].forEach(v => $('#' + v + 'View').classList.toggle('hidden', v !== t));
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.v === t));
