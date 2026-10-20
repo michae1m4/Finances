@@ -3,7 +3,7 @@
    Money — app logic. Reads the finance Sheet through Apps Script (read-only).
    Sections: helpers · data · filters · charts · screens · sheets · events · demo · start
    ============================================================ */
-const VERSION = 2;
+const VERSION = 3;
 
 /* Chart colors: the validated categorical set for dark surfaces (fixed order, never cycled).
    Color follows the category (its position in the Setup list), never its rank in the chart. */
@@ -108,6 +108,7 @@ function prevRange(p, r) {
   return [addDays(r[0], -n), addDays(r[0], -1)];
 }
 const periodLabel = p => p.id === 'custom' ? 'Custom range' : (PERIODS.find(x => x.id === p.id) || PERIODS[0]).label;
+const SHORT = { thisMonth: 'This month', lastMonth: 'Last month', '3m': '3 months', '6m': '6 months', ytd: 'Year to date', '12m': '12 months', all: 'All time', custom: 'Custom' };
 function rangeText(r) {
   const a = parse(r[0]), b = parse(r[1]);
   const A = MONTHS[a.getUTCMonth()] + ' ' + a.getUTCDate(), B = MONTHS[b.getUTCMonth()] + ' ' + b.getUTCDate() + ', ' + b.getUTCFullYear();
@@ -160,7 +161,7 @@ function barsChart(host, labels, series, tipFn) {
   host.innerHTML = '<svg class="chart" viewBox="0 0 ' + w + ' ' + h + '" role="img">' + g + '</svg>';
   host.querySelectorAll('.hit').forEach(r => {
     const go = e => { showTip(tipFn(+r.dataset.i), e.clientX, e.clientY); };
-    r.addEventListener('pointerenter', go); r.addEventListener('pointerdown', go); r.addEventListener('pointerleave', hideTip);
+    r.addEventListener('pointerenter', go); r.addEventListener('pointerdown', go); r.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') hideTip(); });
   });
 }
 /* Two cumulative lines with a crosshair. a: current (to its length), b: previous */
@@ -198,7 +199,7 @@ function linesChart(host, a, b, labelFn) {
       (i < b.length ? '<i style="background:' + C_PREV + '"></i>Previous ' + m0(b[i]) : ''), e.clientX, e.clientY);
   };
   hit.addEventListener('pointermove', move); hit.addEventListener('pointerdown', move);
-  hit.addEventListener('pointerleave', () => { hideTip(); $('#xh', host).classList.add('hidden'); });
+  hit.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') { hideTip(); $('#xh', host).classList.add('hidden'); } });
 }
 /* Donut. items: [{name,value,color}] */
 function donut(host, items, total, onPick) {
@@ -219,25 +220,25 @@ function donut(host, items, total, onPick) {
   host.querySelectorAll('.seg-arc').forEach(p => {
     const it = items[+p.dataset.i];
     p.addEventListener('pointerenter', e => showTip('<b>' + esc(it.name) + '</b>' + m2(it.value) + ' · ' + Math.round(it.value / total * 100) + '%', e.clientX, e.clientY));
-    p.addEventListener('pointerleave', hideTip);
+    p.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') hideTip(); });
     p.addEventListener('click', () => { hideTip(); onPick(it.name); });
   });
 }
 
 /* ---------- reusable pieces ---------- */
 function filterBar() {
-  const cats = S.catFilter.size === 0 ? 'All categories' : S.catFilter.size === 1 ? Array.from(S.catFilter)[0] : S.catFilter.size + ' categories';
+  const cats = S.catFilter.size === 0 ? 'Categories' : S.catFilter.size === 1 ? Array.from(S.catFilter)[0] : S.catFilter.size + ' categories';
   const caret = '<svg class="caret" viewBox="0 0 10 10"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>';
-  return '<div class="chips">' +
-    '<button class="chip on" data-act="pickPeriod">' + esc(periodLabel(S.period)) + caret + '</button>' +
-    '<button class="chip' + (S.catFilter.size ? ' on' : '') + '" data-act="pickCats">' + esc(cats) + caret + '</button>' +
-    (S.accounts.length ? '<button class="chip' + (S.account ? ' on' : '') + '" data-act="pickAcct">' + esc(S.account || 'All accounts') + caret + '</button>' : '') +
+  return '<div class="chips filters">' +
+    '<button class="chip on" data-act="pickPeriod">' + '<span class="cl">' + esc(SHORT[S.period.id] || 'Period') + '</span>' + caret + '</button>' +
+    '<button class="chip' + (S.catFilter.size ? ' on' : '') + '" data-act="pickCats">' + '<span class="cl">' + esc(cats) + '</span>' + caret + '</button>' +
+    (S.accounts.length ? '<button class="chip' + (S.account ? ' on' : '') + '" data-act="pickAcct">' + '<span class="cl">' + esc(S.account || 'Accounts') + '</span>' + caret + '</button>' : '') +
     '</div>';
 }
 function header(title, sub) {
   const ago = S.updatedAt ? Math.max(0, Math.round((Date.now() - S.updatedAt) / 60000)) : null;
   const upd = S.demo ? 'Demo data' : S.status || (ago === null ? '' : ago < 1 ? 'Updated just now' : 'Updated ' + ago + ' min ago');
-  return '<div class="cardhead tight" style="margin-bottom:0"><h1 style="margin-bottom:6px">' + esc(title) + '</h1>' +
+  return '<div class="cardhead tight" style="margin-bottom:0"><h1 style="margin-bottom:0">' + esc(title) + '</h1>' +
     (S.demo ? '' : '<button class="chip small" data-act="refresh">Refresh</button>') + '</div>' +
     '<div class="homedate">' + esc(sub) + (upd ? ' · ' + esc(upd) : '') + '</div>' +
     (S.demo ? '<div class="banner">Showing demo data. Connect your Sheet to see your own numbers.</div>' : '');
@@ -284,7 +285,7 @@ function renderHome() {
   const big = cur.filter(t => t.type === 'Expense').sort((a, b) => b.amount - a.amount)[0];
   const showCum = days <= 93;
   const el = $('#homeView');
-  el.innerHTML = header('Overview', periodLabel(S.period) + ' · ' + rangeText(r)) + filterBar() +
+  el.innerHTML = header('Home', periodLabel(S.period) + ' · ' + rangeText(r)) + filterBar() +
     '<div class="card hero"><div class="cap">Spent</div><div class="hero-num">' + m0(spent) + '</div>' + deltaPill(spent, prev ? sumBy(prev, 'Expense') : null, true, 'Across the selected period') + '</div>' +
     '<div class="tiles"><div class="tile"><div class="cap">Income</div><div class="v num">' + m0(inc) + '</div></div>' +
     '<div class="tile"><div class="cap">Saved</div><div class="v num">' + (saved < 0 ? '−' : '') + m0(Math.abs(saved)) + '</div></div>' +
@@ -439,20 +440,50 @@ function renderUpcoming() {
 const ordinal = n => (n % 100 >= 11 && n % 100 <= 13) ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th');
 
 /* ---------- bottom sheets ---------- */
-function openSheet(html) { $('#sheetBody').innerHTML = html; $('#sheetWrap').classList.remove('hidden'); $('.sheet').scrollTop = 0; }
-function closeSheet() { $('#sheetWrap').classList.add('hidden'); hideTip(); }
+function resetSheetStyle() { $('.sheet').style.cssText = ''; $('#sheetWrap .backdrop').style.opacity = ''; }
+function openSheet(html, foot) {
+  resetSheetStyle();
+  const body = $('#sheetBody'), f = $('#sheetFoot');
+  body.innerHTML = html; body.classList.toggle('footed', !!foot);
+  f.innerHTML = foot || ''; f.classList.toggle('hidden', !foot);
+  $('#sheetWrap').classList.remove('hidden'); body.scrollTop = 0;
+}
+function closeSheet() { $('#sheetWrap').classList.add('hidden'); resetSheetStyle(); hideTip(); }
+/* drag the grey handle down to dismiss */
+(function sheetDrag() {
+  const sheet = $('.sheet'), back = $('#sheetWrap .backdrop'), zone = $('#grabZone');
+  let y0 = 0, t0 = 0, dy = 0, on = false;
+  zone.addEventListener('pointerdown', e => { on = true; y0 = e.clientY; t0 = e.timeStamp; dy = 0; zone.setPointerCapture(e.pointerId); sheet.style.animation = 'none'; sheet.style.transition = 'none'; });
+  zone.addEventListener('pointermove', e => {
+    if (!on) return;
+    dy = Math.max(0, e.clientY - y0);
+    sheet.style.transform = 'translateY(' + dy + 'px)';
+    back.style.opacity = String(Math.max(0, 1 - dy / Math.max(1, sheet.offsetHeight)));
+  });
+  const end = e => {
+    if (!on) return; on = false;
+    const v = dy / Math.max(1, e.timeStamp - t0);
+    if (dy > 110 || (v > 0.6 && dy > 30)) { sheet.style.transition = 'transform .2s ease-in'; sheet.style.transform = 'translateY(100%)'; back.style.transition = 'opacity .2s'; back.style.opacity = '0'; setTimeout(() => { back.style.transition = ''; closeSheet(); }, 200); }
+    else { sheet.style.transition = 'transform .2s ease-out'; sheet.style.transform = ''; back.style.opacity = ''; }
+  };
+  zone.addEventListener('pointerup', end); zone.addEventListener('pointercancel', end);
+})();
+let pend = { id: 'thisMonth' };
+function markPeriod() { document.querySelectorAll('#sheetBody .opt[data-p]').forEach(o => o.classList.toggle('on', o.dataset.p === pend.id)); }
 function pickPeriod() {
-  const c = S.period;
+  const c = S.period, r = periodRange(c);
+  pend = { id: c.id };
   openSheet('<h2 style="margin-bottom:6px">Time period</h2>' +
-    PERIODS.map(p => '<div class="opt' + (c.id === p.id ? ' on' : '') + '" data-act="setPeriod" data-v="' + p.id + '">' + p.label + '<span class="ck"></span></div>').join('') +
-    '<div class="opt' + (c.id === 'custom' ? ' on' : '') + '" style="cursor:default">Custom range<span class="ck"></span></div>' +
-    '<div class="daterow"><div><label>From</label><input type="date" id="dFrom" value="' + (c.from || periodRange(c)[0]) + '"></div><div><label>To</label><input type="date" id="dTo" value="' + (c.to || periodRange(c)[1]) + '"></div></div>' +
-    '<div class="actions"><button class="full" data-act="applyCustom">Apply range</button></div>');
+    PERIODS.map(p => '<div class="opt" data-p="' + p.id + '" data-act="setPeriod" data-v="' + p.id + '">' + p.label + '<span class="ck"></span></div>').join('') +
+    '<div class="opt" data-p="custom" data-act="setPeriod" data-v="custom">Custom range<span class="ck"></span></div>' +
+    '<div class="daterow"><div><label>From</label><input type="date" id="dFrom" value="' + (c.from || r[0]) + '"></div><div><label>To</label><input type="date" id="dTo" value="' + (c.to || r[1]) + '"></div></div>',
+    '<button class="full" data-act="applyPeriod">Apply</button>');
+  markPeriod();
 }
 function pickCats() {
   openSheet('<div class="cardhead"><h2>Categories</h2><button class="chip small" data-act="clearCats">Clear</button></div>' +
     (S.data.categories || []).map(c => '<div class="opt' + (S.catFilter.has(c.name) ? ' on' : '') + '" data-act="toggleCat" data-v="' + esc(c.name) + '"><span style="display:flex;align-items:center;gap:10px"><span class="dot" style="width:10px;height:10px;border-radius:50%;background:' + catColor(c.name, c.group) + '"></span>' + esc(c.name) + '</span><span class="ck"></span></div>').join('') +
-    '<div class="actions"><button class="full" data-act="closeSheet">Done</button></div>');
+    '', '<button class="full" data-act="closeSheet">Done</button>');
 }
 function pickAcct() {
   openSheet('<h2 style="margin-bottom:6px">Account</h2><div class="opt' + (!S.account ? ' on' : '') + '" data-act="setAcct" data-v="">All accounts<span class="ck"></span></div>' +
@@ -494,8 +525,12 @@ document.addEventListener('click', e => {
     case 'pickPeriod': pickPeriod(); break;
     case 'pickCats': pickCats(); break;
     case 'pickAcct': pickAcct(); break;
-    case 'setPeriod': S.period = { id: v }; S.limit = 60; closeSheet(); render(); break;
-    case 'applyCustom': { const f = $('#dFrom').value, t = $('#dTo').value; if (f && t) { S.period = { id: 'custom', from: f, to: t }; S.limit = 60; closeSheet(); render(); } break; }
+    case 'setPeriod': pend = { id: v }; markPeriod(); break;
+    case 'applyPeriod': {
+      if (pend.id === 'custom') { const f = $('#dFrom').value, t = $('#dTo').value; if (!f || !t) break; S.period = { id: 'custom', from: f, to: t }; }
+      else S.period = { id: pend.id };
+      S.limit = 60; closeSheet(); render(); break;
+    }
     case 'toggleCat': if (S.catFilter.has(v)) S.catFilter.delete(v); else S.catFilter.add(v); b.classList.toggle('on'); S.limit = 60; render(); break;
     case 'clearCats': S.catFilter.clear(); closeSheet(); render(); break;
     case 'setAcct': S.account = v; S.limit = 60; closeSheet(); render(); break;
@@ -512,6 +547,8 @@ document.addEventListener('click', e => {
     case 'demo': location.search = '?demo=1'; break;
   }
 });
+document.addEventListener('change', e => { if (e.target.id === 'dFrom' || e.target.id === 'dTo') { pend = { id: 'custom' }; markPeriod(); } });
+document.addEventListener('contextmenu', e => { if (!e.target.closest('input, textarea')) e.preventDefault(); });
 let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (S.data && $('#sheetWrap').classList.contains('hidden') && !$('#app').classList.contains('hidden')) render(); }, 150); });
 
 /* ---------- loading ---------- */
