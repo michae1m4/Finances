@@ -3,14 +3,17 @@
    Money — app logic. Reads the finance Sheet through Apps Script (read-only).
    Sections: helpers · data · filters · charts · screens · sheets · events · demo · start
    ============================================================ */
-const VERSION = 5;
+const VERSION = 9;
 
-/* Chart colors: the validated categorical set for dark surfaces (fixed order, never cycled).
-   Color follows the category (its position in the Setup list), never its rank in the chart. */
-const PALETTE = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
-const REST = '#6b6b72';
-const C_INCOME = '#3987e5', C_SPEND = '#d95926', C_PREV = '#898781';
-const TYPE_COLOR = { Income: '#3987e5', Savings: '#9085e9', Transfer: '#6b6b72' };
+/* Colors. The app is neutral graphite with two pops: lime (income, the accent) and gold (spending).
+   The category donuts and the category breakdowns under them use a wider set that starts with the same gold and an olive-lime, so slices can be told apart:
+   one color per category by its position in your Setup list, so a category keeps its color. */
+const PALETTE = ['#c98500', '#3987e5', '#6fa820', '#d55181', '#9085e9', '#1fa89a', '#d95926'];   /* gold, blue, olive-lime, rose, violet, teal, orange: same lightness, checked to stay apart (also for color-blind viewers) */
+const INCOME_COLORS = ['#a2dc3e', '#3987e5', '#c98500', '#d55181', '#9085e9', '#1fa89a'];
+const REST = '#62655c';
+const C_INCOME = '#a2dc3e', C_SPEND = '#c98500';
+const TYPE_COLOR = { Income: '#a2dc3e', Savings: '#8a8d84', Transfer: '#62655c' };
+const quietColor = type => type === 'Income' ? '#a2dc3e' : type === 'Expense' ? '#6f7268' : '#62655c';
 
 /* ---------- helpers ---------- */
 const $ = (s, root) => (root || document).querySelector(s);
@@ -245,7 +248,7 @@ function deltaPill(cur, prev, upIsBad, label) {
   return '<span class="delta"><span class="pill ' + cls + '">' + (up ? '▲' : down ? '▼' : '•') + ' ' + Math.abs(Math.round(pct * 100)) + '%</span> vs previous period</span>';
 }
 function txRow(t, showCat) {
-  const dot = catColor(t.category, t.type);
+  const dot = quietColor(t.type);
   const amt = t.type === 'Income' ? '<div class="a in num">+' + m2(t.amount) + '</div>' : '<div class="a ' + (t.type === 'Expense' ? '' : 'dim') + ' num">' + m2(t.amount) + '</div>';
   return '<div class="item"><span class="dot" style="background:' + dot + '"></span><div class="mid"><div class="t">' + esc(t.description || t.category) + '</div>' +
     '<div class="s">' + (showCat ? esc(t.category) + ' · ' : '') + esc(shortDate(t.date)) + (t.account ? ' · ' + esc(t.account) : '') + '</div></div><div class="r">' + amt + '</div></div>';
@@ -280,13 +283,9 @@ function renderHome() {
     '<div class="legend"><span><i style="background:' + C_INCOME + '"></i>Income</span><span><i style="background:' + C_SPEND + '"></i>Spending</span></div></div>' +
     catCard('spendCard', 'Spending by category', S.spendTable) + catCard('incCard', 'Income by category', S.incTable) +
     '<div class="card"><div class="cardhead"><h2>Top categories</h2><button class="chip small" data-act="tab" data-v="spend">See all</button></div><div class="list">' +
-    (top.length ? top.slice(0, 5).map(c => catRow(c[0], c[1], spent, r, false)).join('') : '<div class="empty">No spending in this period.</div>') + '</div></div>' +
-    '<div class="card"><div class="cardhead"><h2>Highlights</h2></div><div class="list">' +
-    hl('Average per day', m2(spent / days)) + hl('Transactions', String(cur.filter(t => t.type === 'Expense').length)) +
-    (big ? hl('Largest purchase', m2(big.amount) + ' · ' + esc(big.description)) : '') + '</div></div>' + footer();
+    (top.length ? top.slice(0, 5).map(c => catRow(c[0], c[1], spent, r, false)).join('') : '<div class="empty">No spending in this period.</div>') + '</div></div>' + footer();
   drawHomeCharts(cur, inc, spent);
 }
-const hl = (a, b) => '<div class="item"><div class="mid"><div class="t" style="font-weight:500;color:var(--muted);font-size:15px">' + a + '</div></div><div class="r"><div class="a num" style="font-size:15px">' + b + '</div></div></div>';
 function drawHomeCharts(cur, inc, spent) {
   const md = monthlyData(), host = $('#barsHost');
   if (S.tableView) {
@@ -309,7 +308,7 @@ function drawCatBreakdown(id, asTable, cur, type, total, income) {
   const host = $('#' + id + ' .bd'), isSpend = type === 'Expense';
   const by = new Map(); cur.forEach(t => { if (t.type === type) by.set(t.category, (by.get(t.category) || 0) + t.amount); });
   const incomeOrder = (S.data.categories || []).filter(c => c.group === 'Income').map(c => c.name);
-  const colorOf = n => isSpend ? catColor(n, 'Expense') : (PALETTE[incomeOrder.indexOf(n)] || REST);
+  const colorOf = n => isSpend ? catColor(n, 'Expense') : (INCOME_COLORS[incomeOrder.indexOf(n)] || REST);
   const items = Array.from(by.entries()).map(e => ({ name: e[0], value: e[1], color: colorOf(e[0]) })).sort((x, y) => y.value - x.value);
   if (!items.length) { host.innerHTML = '<div class="empty">No ' + (isSpend ? 'spending' : 'income') + ' in this period.</div>'; return; }
   const ofIncome = v => income > 0 ? pct1(v / income) : '–';
@@ -499,7 +498,7 @@ function pickPeriod() {
 }
 function pickCats() {
   openSheet('<div class="cardhead shead"><h2>Categories</h2><button class="chip small" data-act="clearCats">Clear</button></div>' +
-    (S.data.categories || []).map(c => '<div class="opt' + (S.catFilter.has(c.name) ? ' on' : '') + '" data-act="toggleCat" data-v="' + esc(c.name) + '"><span style="display:flex;align-items:center;gap:10px"><span class="dot" style="width:10px;height:10px;border-radius:50%;background:' + catColor(c.name, c.group) + '"></span>' + esc(c.name) + '</span><span class="ck"></span></div>').join('') +
+    (S.data.categories || []).map(c => '<div class="opt' + (S.catFilter.has(c.name) ? ' on' : '') + '" data-act="toggleCat" data-v="' + esc(c.name) + '"><span style="display:flex;align-items:center;gap:10px"><span class="dot" style="width:10px;height:10px;border-radius:50%;background:' + quietColor(c.group) + '"></span>' + esc(c.name) + '</span><span class="ck"></span></div>').join('') +
     '', '<button class="full" data-act="closeSheet">Done</button>');
 }
 function pickAcct() {
@@ -511,7 +510,7 @@ function openCategory(name, sort) {
   drill = { name: name, sort: sort || drill.sort || 'new' };
   const r = periodRange(S.period), c = S.cats.get(name) || {}, type = c.group || 'Expense';
   const all = S.txs.filter(t => t.category === name && inR(t, r) && (!S.account || t.account === S.account));
-  const total = all.reduce((s, t) => s + t.amount, 0), color = catColor(name, type);
+  const total = all.reduce((s, t) => s + t.amount, 0), color = type === 'Expense' ? C_SPEND : quietColor(type);
   const list = all.slice().sort(drill.sort === 'new' ? (a, b) => a.date < b.date ? 1 : -1 : (a, b) => b.amount - a.amount);
   openSheet('<div class="cardhead tight shead"><div style="display:flex;align-items:center;gap:10px;min-width:0"><span class="dot" style="width:12px;height:12px;border-radius:50%;background:' + color + ';flex:none"></span><h2 style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(name) + '</h2></div><button class="chip small" data-act="closeSheet">Close</button></div>' +
     '<div class="sub" style="margin-bottom:12px">' + periodLabel(S.period) + ' · ' + rangeText(r) + '</div>' +
