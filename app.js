@@ -3,7 +3,7 @@
    Money — app logic. Reads the finance Sheet through Apps Script (read-only).
    Sections: helpers · data · filters · charts · screens · sheets · events · demo · start
    ============================================================ */
-const VERSION = 9;
+const VERSION = 10;
 
 /* Colors. The app is neutral graphite with two pops: lime (income, the accent) and gold (spending).
    The category donuts and the category breakdowns under them use a wider set that starts with the same gold and an olive-lime, so slices can be told apart:
