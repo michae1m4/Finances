@@ -19,8 +19,9 @@ const quietColor = type => type === 'Income' ? '#a2dc3e' : type === 'Expense' ? 
 const $ = (s, root) => (root || document).querySelector(s);
 /* ---------- motion (timings chosen in the motion options mockup) ---------- */
 const REDUCE = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const MOT = { tab: 320, sheet: 340, barDur: 900, barStag: 60, donut: 900, list: 500, listStag: 100, hero: 1100 };
+const MOT = { tab: 560, sheet: 340, barDur: 900, barStag: 60, donut: 900, list: 500, listStag: 100, hero: 1100 };
 const EASE = 'cubic-bezier(.2,.8,.2,1)';
+const EASE_TAB = 'cubic-bezier(.4,0,.2,1)';   /* even, unhurried: the same for every page switch */
 let A = { c: false, p: false };            /* what to animate on the current render: charts, page (numbers + lists) */
 /* Chart, number and list animations play once per screen, and only in a "fresh" visit: the first open, or
    an open 10+ minutes after the app was last used. Reopening sooner skips them (the splash is skipped too). */
@@ -37,7 +38,8 @@ document.addEventListener('visibilitychange', () => {
   if (away >= GAP) { FRESH = true; Object.keys(SEEN).forEach(k => delete SEEN[k]); if (S.data && !$('#app').classList.contains('hidden')) render(); }
   else FRESH = false;
 });
-const lead = () => (document.getElementById('splash') ? Math.max(0, 2500 - performance.now()) : 0);   /* wait for the splash to fade */
+let extraLead = 0;   /* while a page slides in, charts and lists wait until it has mostly arrived */
+const lead = () => (document.getElementById('splash') ? Math.max(0, 2500 - performance.now()) : 0) + extraLead;   /* wait for the splash to fade */
 function anim(el, kf, o) { if (REDUCE || !el || !el.animate) return null; return el.animate(kf, o); }
 function countUp(el, to, fmt, dur, delay) {
   if (REDUCE) return;
@@ -600,16 +602,20 @@ function playPage(t) {
 function makeGhost(id) {
   if (REDUCE) return null;
   const el = $('#' + id + 'View'); if (!el || el.classList.contains('hidden')) return null;
-  const r = el.getBoundingClientRect(), g = el.cloneNode(true);
-  g.removeAttribute('id'); g.querySelectorAll('[id]').forEach(n => n.removeAttribute('id')); g.querySelectorAll('[data-act]').forEach(n => n.removeAttribute('data-act'));
-  g.style.cssText = 'position:fixed;left:' + r.left + 'px;top:' + r.top + 'px;width:' + r.width + 'px;margin:0;pointer-events:none;z-index:15;overflow:hidden;max-height:' + innerHeight + 'px';
+  const r = el.getBoundingClientRect(), c = el.cloneNode(true);
+  c.removeAttribute('id'); c.querySelectorAll('[id]').forEach(n => n.removeAttribute('id')); c.querySelectorAll('[data-act]').forEach(n => n.removeAttribute('data-act'));
+  c.style.cssText = 'position:absolute;left:' + r.left + 'px;top:' + r.top + 'px;width:' + r.width + 'px;margin:0';
+  const g = document.createElement('div');   /* clips the old page to the screen, exactly as it was scrolled */
+  g.style.cssText = 'position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:15';
+  g.appendChild(c);
   return g;
 }
+const TAB_SHIFT = 48;
 function slideViews(ghost, dir, v) {
-  anim($('#' + v + 'View'), [{ opacity: 0, transform: 'translateX(' + dir * 28 + 'px)' }, { opacity: 1, transform: 'none' }], { duration: MOT.tab, easing: EASE });
+  anim($('#' + v + 'View'), [{ opacity: 0, transform: 'translateX(' + dir * TAB_SHIFT + 'px)' }, { opacity: 1, transform: 'none' }], { duration: MOT.tab, easing: EASE_TAB });
   if (!ghost) return;
   document.body.appendChild(ghost);
-  const a = ghost.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateX(' + (-dir * 28) + 'px)' }], { duration: MOT.tab * .7, easing: 'ease-out', fill: 'forwards' });
+  const a = ghost.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateX(' + (-dir * TAB_SHIFT) + 'px)' }], { duration: MOT.tab, easing: EASE_TAB, fill: 'forwards' });
   a.onfinish = () => ghost.remove();
 }
 document.addEventListener('click', e => {
@@ -618,7 +624,7 @@ document.addEventListener('click', e => {
   switch (a) {
     case 'tab': {
       const from = S.tab, ghost = from !== v ? makeGhost(from) : null;
-      S.tab = v; closeSheet(true); render(); scrollTo(0, 0);
+      S.tab = v; closeSheet(true); extraLead = from !== v ? Math.round(MOT.tab * .6) : 0; render(); extraLead = 0; scrollTo(0, 0);
       if (from !== v) slideViews(ghost, TAB_ORDER.indexOf(v) > TAB_ORDER.indexOf(from) ? 1 : -1, v);
       break;
     }
