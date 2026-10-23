@@ -21,8 +21,22 @@ const $ = (s, root) => (root || document).querySelector(s);
 const REDUCE = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const MOT = { tab: 320, sheet: 340, barDur: 900, barStag: 60, donut: 900, list: 500, listStag: 100, hero: 1100 };
 const EASE = 'cubic-bezier(.2,.8,.2,1)';
-let A = { c: false, p: false };            /* what to animate on the next render: charts, page (numbers + lists) */
-const animAll = () => { A.c = true; A.p = true; };
+let A = { c: false, p: false };            /* what to animate on the current render: charts, page (numbers + lists) */
+/* Chart, number and list animations play once per screen, and only in a "fresh" visit: the first open, or
+   an open 10+ minutes after the app was last used. Reopening sooner skips them (the splash is skipped too). */
+const GAP = 10 * 60 * 1000, SEEN_KEY = 'fin_seen';
+let FRESH = window.__fresh !== false, hiddenAt = 0, lastStamp = 0;
+const SEEN = {};
+const stamp = () => { try { localStorage.setItem(SEEN_KEY, String(Date.now())); } catch (e) { /* ignore */ } };
+addEventListener('pointerdown', () => { if (Date.now() - lastStamp > 20000) { lastStamp = Date.now(); stamp(); } }, { passive: true, capture: true });
+addEventListener('pagehide', stamp);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); stamp(); return; }
+  if (!hiddenAt) return;
+  const away = Date.now() - hiddenAt; hiddenAt = 0; stamp();
+  if (away >= GAP) { FRESH = true; Object.keys(SEEN).forEach(k => delete SEEN[k]); if (S.data && !$('#app').classList.contains('hidden')) render(); }
+  else FRESH = false;
+});
 const lead = () => (document.getElementById('splash') ? Math.max(0, 2500 - performance.now()) : 0);   /* wait for the splash to fade */
 function anim(el, kf, o) { if (REDUCE || !el || !el.animate) return null; return el.animate(kf, o); }
 function countUp(el, to, fmt, dur, delay) {
@@ -557,20 +571,22 @@ function openCategory(name, sort) {
   const keys = monthsBetween(r[0], r[1]); let labels, vals;
   if (keys.length >= 2) { labels = keys.length > 12 ? keys.slice(-12) : keys; vals = labels.map(k => all.filter(t => monthKey(t.date) === k).reduce((s, t) => s + t.amount, 0)); labels = labels.map(mLabel); }
   else { const n = Math.ceil((diffDays(r[0], r[1]) + 1) / 7); labels = []; vals = []; for (let i = 0; i < n; i++) { const a = addDays(r[0], i * 7), b = addDays(r[0], i * 7 + 6); labels.push(shortDate(a)); vals.push(all.filter(t => t.date >= a && t.date <= b).reduce((s, t) => s + t.amount, 0)); } }
-  barsChart($('#drillHost'), labels, [{ name: name, color: color, values: vals }], i => '<b>' + esc(labels[i]) + '</b>' + m2(vals[i]), true);
+  barsChart($('#drillHost'), labels, [{ name: name, color: color, values: vals }], i => '<b>' + esc(labels[i]) + '</b>' + m2(vals[i]), FRESH && !SEEN.drill);
+  SEEN.drill = true;
 }
 
 /* ---------- navigation + events ---------- */
 function render() {
   if (!S.data) return;
   hideTip();
-  const t = S.tab;
+  const t = S.tab, go = FRESH && !SEEN[t];
+  A.c = go; A.p = go;
   ['home', 'spend', 'activity', 'upcoming'].forEach(v => $('#' + v + 'View').classList.toggle('hidden', v !== t));
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.v === t));
   $('.tabs .ind').style.transform = 'translateX(calc(' + TAB_ORDER.indexOf(t) + ' * (100% + 4px)))';
   if (t === 'home') renderHome(); else if (t === 'spend') renderSpend(); else if (t === 'activity') renderActivity(false); else renderUpcoming();
   playPage(t);
-  if (!S.settle) { A.c = false; A.p = false; }
+  if (!S.settle) { if (go) SEEN[t] = true; A.c = false; A.p = false; }
 }
 const TAB_ORDER = ['home', 'spend', 'activity', 'upcoming'];
 /* big numbers count up and the first rows of each list arrive one after another */
@@ -602,7 +618,7 @@ document.addEventListener('click', e => {
   switch (a) {
     case 'tab': {
       const from = S.tab, ghost = from !== v ? makeGhost(from) : null;
-      S.tab = v; closeSheet(true); animAll(); render(); scrollTo(0, 0);
+      S.tab = v; closeSheet(true); render(); scrollTo(0, 0);
       if (from !== v) slideViews(ghost, TAB_ORDER.indexOf(v) > TAB_ORDER.indexOf(from) ? 1 : -1, v);
       break;
     }
@@ -613,17 +629,17 @@ document.addEventListener('click', e => {
     case 'applyPeriod': {
       if (pend.id === 'custom') { const f = $('#dFrom').value, t = $('#dTo').value; if (!f || !t) break; S.period = { id: 'custom', from: f, to: t }; }
       else S.period = { id: pend.id };
-      S.limit = 60; closeSheet(); animAll(); render(); break;
+      S.limit = 60; closeSheet(); render(); break;
     }
     case 'toggleCat': if (S.catFilter.has(v)) S.catFilter.delete(v); else S.catFilter.add(v); b.classList.toggle('on'); S.limit = 60; render(); break;
-    case 'clearCats': S.catFilter.clear(); closeSheet(); animAll(); render(); break;
-    case 'setAcct': S.account = v; S.limit = 60; closeSheet(); animAll(); render(); break;
+    case 'clearCats': S.catFilter.clear(); closeSheet(); render(); break;
+    case 'setAcct': S.account = v; S.limit = 60; closeSheet(); render(); break;
     case 'closeSheet': closeSheet(); break;
     case 'openCat': openCategory(v); break;
     case 'drillSort': openCategory(drill.name, v); break;
-    case 'toggleSpendTable': S.spendTable = !S.spendTable; A.c = true; render(); break;
-    case 'toggleIncTable': S.incTable = !S.incTable; A.c = true; render(); break;
-    case 'toggleTable': S.tableView = !S.tableView; A.c = true; render(); break;
+    case 'toggleSpendTable': S.spendTable = !S.spendTable; render(); break;
+    case 'toggleIncTable': S.incTable = !S.incTable; render(); break;
+    case 'toggleTable': S.tableView = !S.tableView; render(); break;
     case 'type': S.type = v; S.limit = 60; renderActivity(true); break;
     case 'sort': S.sort = v; renderActivity(true); break;
     case 'more': S.limit += 60; renderActivity(true); break;
@@ -691,7 +707,6 @@ function makeDemo() {
 
 /* ---------- start ---------- */
 (function start() {
-  animAll();
   const demo = /[?&]demo=1/.test(location.search);
   const configured = typeof CONFIG !== 'undefined' && CONFIG.API_URL && CONFIG.API_URL.indexOf('PASTE') !== 0;
   if (demo || !configured) {

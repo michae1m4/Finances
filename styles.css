@@ -215,13 +215,13 @@ svg.chart { display: block; width: 100%; height: auto; overflow: visible; touch-
 /* ---------- splash (timings chosen in the timing slider mockup, speed 80%) ---------- */
 #splash { position: fixed; inset: 0; z-index: 9999; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; animation: spOut 1000ms 2300ms both; }
 .sp-icon { position: relative; display: flex; align-items: center; justify-content: center; }
-.sp-glow { position: absolute; left: 50%; top: 50%; width: 280px; height: 280px; margin: -140px 0 0 -140px; border-radius: 50%; background: radial-gradient(circle, rgba(162, 220, 62, .55), transparent 65%); opacity: 0; animation: spGlow 2500ms 250ms ease-out both; }
-.sp-tile { position: relative; width: 104px; height: 104px; border-radius: 28px; background: linear-gradient(#1b1d19, #0f110d); border: 1px solid rgba(235, 240, 225, .14); display: flex; gap: 8px; align-items: flex-end; justify-content: center; padding-bottom: 25px; animation: spTile 1125ms cubic-bezier(.2, .9, .3, 1.1) both; }
-.sp-tile i { width: 16px; border-radius: 6px; background: #b2ec46; transform-origin: bottom; animation: spRise 1063ms cubic-bezier(.2, .9, .25, 1.15) both; }
-.sp-tile i:nth-child(1) { height: 23px; animation-delay: 188ms; }
-.sp-tile i:nth-child(2) { height: 38px; animation-delay: 300ms; }
-.sp-tile i:nth-child(3) { height: 54px; animation-delay: 413ms; }
-.sp-wm { display: flex; margin-top: 24px; font-weight: 800; font-size: 24px; letter-spacing: .02em; }
+.sp-glow { position: absolute; left: 50%; top: 50%; width: 420px; height: 420px; margin: -210px 0 0 -210px; border-radius: 50%; background: radial-gradient(circle, rgba(162, 220, 62, .55), transparent 65%); opacity: 0; animation: spGlow 2500ms 250ms ease-out both; }
+.sp-tile { position: relative; width: 156px; height: 156px; border-radius: 42px; background: linear-gradient(#1b1d19, #0f110d); border: 1px solid rgba(235, 240, 225, .14); display: flex; gap: 12px; align-items: flex-end; justify-content: center; padding-bottom: 38px; animation: spTile 1125ms cubic-bezier(.2, .9, .3, 1.1) both; }
+.sp-tile i { width: 24px; border-radius: 9px; background: #b2ec46; transform-origin: bottom; animation: spRise 1063ms cubic-bezier(.2, .9, .25, 1.15) both; }
+.sp-tile i:nth-child(1) { height: 35px; animation-delay: 188ms; }
+.sp-tile i:nth-child(2) { height: 57px; animation-delay: 300ms; }
+.sp-tile i:nth-child(3) { height: 81px; animation-delay: 413ms; }
+.sp-wm { display: flex; margin-top: 34px; font-weight: 800; font-size: 38px; letter-spacing: .02em; }
 .sp-wm span { display: inline-block; animation: spUp 750ms both; }
 @keyframes spOut { from { opacity: 1; } to { opacity: 0; } }
 @keyframes spTile { from { opacity: 0; transform: scale(.7); } to { opacity: 1; transform: none; } }
