@@ -11,9 +11,17 @@
   <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon-v11.png">
   <link rel="icon" type="image/png" href="apple-touch-icon-v11.png">
   <title>Money</title>
-  <link rel="stylesheet" href="styles.css?v=11">
+  <link rel="stylesheet" href="styles.css?v=12">
 </head>
 <body>
+  <!-- splash: bars rise in the icon tile, glow follows, name spells in, then fades into the app (tap to skip) -->
+  <div id="splash" aria-hidden="true">
+    <div class="sp-icon">
+      <div class="sp-glow"></div>
+      <div class="sp-tile"><i></i><i></i><i></i></div>
+    </div>
+    <div class="sp-wm" id="spWm"></div>
+  </div>
   <!-- first-run: paste the key -->
   <main id="setupView" class="view hidden">
     <h1>Money</h1>
@@ -36,6 +44,7 @@
     <main id="upcomingView" class="view hidden"></main>
 
     <nav class="tabs" aria-label="Sections">
+      <i class="ind"></i>
       <button data-act="tab" data-v="home" class="on">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 11.2 12 4l8 7.2V19a1 1 0 0 1-1 1h-4.5v-5.5h-5V20H5a1 1 0 0 1-1-1z"/></svg>
         <span>Home</span>
@@ -65,7 +74,18 @@
   </div>
   <div id="tip" class="tip hidden" role="status"></div>
 
-  <script src="config.js?v=11"></script>
-  <script src="app.js?v=11"></script>
+  <script>
+    (function () {
+      var s = document.getElementById('splash'); if (!s) return;
+      var w = document.getElementById('spWm');
+      w.innerHTML = 'Money'.split('').map(function (c, i) { return '<span style="animation-delay:' + (688 + i * 75) + 'ms">' + c + '</span>'; }).join('');
+      function done() { if (s.parentNode) s.parentNode.removeChild(s); }
+      s.addEventListener('animationend', function (e) { if (e.target === s) done(); });
+      s.addEventListener('click', function () { s.style.transition = 'opacity .2s'; s.style.opacity = '0'; setTimeout(done, 220); });
+      setTimeout(done, 3800);
+    })();
+  </script>
+  <script src="config.js?v=12"></script>
+  <script src="app.js?v=12"></script>
 </body>
 </html>

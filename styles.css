@@ -5,10 +5,10 @@
    Chart colors are set in app.js.
    ============================================================ */
 /* Manrope, bundled in /fonts so it works offline */
-@font-face { font-family: 'Manrope'; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/manrope-latin-500-normal.woff2?v=11') format('woff2'); }
-@font-face { font-family: 'Manrope'; font-style: normal; font-weight: 600; font-display: swap; src: url('fonts/manrope-latin-600-normal.woff2?v=11') format('woff2'); }
-@font-face { font-family: 'Manrope'; font-style: normal; font-weight: 700; font-display: swap; src: url('fonts/manrope-latin-700-normal.woff2?v=11') format('woff2'); }
-@font-face { font-family: 'Manrope'; font-style: normal; font-weight: 800; font-display: swap; src: url('fonts/manrope-latin-800-normal.woff2?v=11') format('woff2'); }
+@font-face { font-family: 'Manrope'; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/manrope-latin-500-normal.woff2?v=12') format('woff2'); }
+@font-face { font-family: 'Manrope'; font-style: normal; font-weight: 600; font-display: swap; src: url('fonts/manrope-latin-600-normal.woff2?v=12') format('woff2'); }
+@font-face { font-family: 'Manrope'; font-style: normal; font-weight: 700; font-display: swap; src: url('fonts/manrope-latin-700-normal.woff2?v=12') format('woff2'); }
+@font-face { font-family: 'Manrope'; font-style: normal; font-weight: 800; font-display: swap; src: url('fonts/manrope-latin-800-normal.woff2?v=12') format('woff2'); }
 
 :root{
   --top-gap:40px;
@@ -33,6 +33,7 @@
 }
 * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
 html { background: var(--bg); }
+body { overflow-x: clip; }
 body {
   margin: 0;
   font-family: 'Manrope', -apple-system, 'SF Pro Text', system-ui, sans-serif;
@@ -152,7 +153,9 @@ svg.chart { display: block; width: 100%; height: auto; overflow: visible; touch-
 .chart .hit.bar { cursor: pointer; }
 .chart .seg-hit { touch-action: pan-y; cursor: pointer; }
 .chart, .chart * { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
-.chart .seg-arc { cursor: pointer; transition: opacity .15s; }
+.chart .seg-arc { cursor: pointer; transition: opacity .15s, stroke-width .22s cubic-bezier(.3, 1.5, .5, 1); }
+.chart .seg-arc.sel { stroke-width: 31; }
+.bar-p { transform-box: fill-box; transform-origin: 50% 100%; }
 .chart .dim { opacity: .35; }
 .donutwrap { max-width: 280px; margin: 4px auto 14px; }
 
@@ -169,6 +172,7 @@ svg.chart { display: block; width: 100%; height: auto; overflow: visible; touch-
   background: rgba(9, 10, 8, .84); border-top: 1px solid var(--line);
   -webkit-backdrop-filter: blur(22px) saturate(160%); backdrop-filter: blur(22px) saturate(160%);
 }
+.tabs .ind { position: absolute; top: -1px; left: 12px; width: calc((100% - 36px) / 4); height: 2px; border-radius: 2px; background: var(--accent); transition: transform 352ms cubic-bezier(.2, .8, .2, 1); }
 .tabs button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; background: none; color: var(--faint); font-size: 11px; font-weight: 600; padding: 6px 0; border-radius: 12px; }
 .tabs button.on { color: var(--accent); }
 .tabs svg { width: 25px; height: 25px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -180,14 +184,14 @@ svg.chart { display: block; width: 100%; height: auto; overflow: visible; touch-
 .sheet {
   position: absolute; left: 0; right: 0; bottom: 0; max-height: 88%; display: flex; flex-direction: column; overflow: hidden;
   background: #181a16; border-radius: 28px 28px 0 0; border-top: 1px solid var(--line);
-  max-width: 640px; margin: 0 auto; animation: up .22s ease-out; will-change: transform;
+  max-width: 640px; margin: 0 auto; animation: sheetIn 340ms cubic-bezier(.2, .8, .2, 1) backwards; will-change: transform;
 }
 #sheetBody { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; padding: 0 20px calc(env(safe-area-inset-bottom) + 24px); }
 #sheetBody.footed { padding-bottom: 44px; }
 #sheetFoot { position: relative; flex: none; padding: 12px 20px calc(env(safe-area-inset-bottom) + 18px); background: #181a16; }
 #sheetFoot::before { content: ''; position: absolute; left: 0; right: 0; top: -40px; height: 40px; pointer-events: none; background: linear-gradient(to bottom, rgba(24,26,22,0), #181a16); }
-.shead { touch-action: none; padding: 8px 0 16px; margin-bottom: 0; }
-.grabzone { flex: none; padding: 14px 0 18px; touch-action: none; cursor: grab; }
+.shead { touch-action: none; padding: 12px 0 22px; margin-bottom: 0; }
+.grabzone { flex: none; padding: 18px 0 22px; touch-action: none; cursor: grab; }
 @keyframes up { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
 .grab { width: 40px; height: 5px; border-radius: 99px; background: #3a3d34; margin: 0 auto; }
 .opt { display: flex; align-items: center; justify-content: space-between; padding: 15px 4px; border-top: 1px solid var(--line); font-size: 17px; font-weight: 500; cursor: pointer; }
@@ -207,3 +211,34 @@ svg.chart { display: block; width: 100%; height: auto; overflow: visible; touch-
 .tip b { display: block; font-size: 13px; margin-bottom: 2px; }
 .tip i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
 .banner { background: rgba(203, 157, 70, .14); color: #e0b45c; font-size: 13px; font-weight: 600; padding: 9px 14px; border-radius: 12px; margin-bottom: 14px; }
+
+/* ---------- splash (timings chosen in the timing slider mockup, speed 80%) ---------- */
+#splash { position: fixed; inset: 0; z-index: 9999; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; animation: spOut 1000ms 2300ms both; }
+.sp-icon { position: relative; display: flex; align-items: center; justify-content: center; }
+.sp-glow { position: absolute; left: 50%; top: 50%; width: 280px; height: 280px; margin: -140px 0 0 -140px; border-radius: 50%; background: radial-gradient(circle, rgba(162, 220, 62, .55), transparent 65%); opacity: 0; animation: spGlow 2500ms 250ms ease-out both; }
+.sp-tile { position: relative; width: 104px; height: 104px; border-radius: 28px; background: linear-gradient(#1b1d19, #0f110d); border: 1px solid rgba(235, 240, 225, .14); display: flex; gap: 8px; align-items: flex-end; justify-content: center; padding-bottom: 25px; animation: spTile 1125ms cubic-bezier(.2, .9, .3, 1.1) both; }
+.sp-tile i { width: 16px; border-radius: 6px; background: #b2ec46; transform-origin: bottom; animation: spRise 1063ms cubic-bezier(.2, .9, .25, 1.15) both; }
+.sp-tile i:nth-child(1) { height: 23px; animation-delay: 188ms; }
+.sp-tile i:nth-child(2) { height: 38px; animation-delay: 300ms; }
+.sp-tile i:nth-child(3) { height: 54px; animation-delay: 413ms; }
+.sp-wm { display: flex; margin-top: 24px; font-weight: 800; font-size: 24px; letter-spacing: .02em; }
+.sp-wm span { display: inline-block; animation: spUp 750ms both; }
+@keyframes spOut { from { opacity: 1; } to { opacity: 0; } }
+@keyframes spTile { from { opacity: 0; transform: scale(.7); } to { opacity: 1; transform: none; } }
+@keyframes spRise { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes spGlow { 0% { opacity: 0; transform: scale(.55); } 40% { opacity: .6; } 100% { opacity: .21; transform: scale(1.1); } }
+@keyframes spUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { #splash, #splash * { animation-duration: .01ms !important; animation-delay: 0s !important; } #splash { animation-delay: 600ms !important; animation-duration: 200ms !important; } }
+
+/* ---------- motion (timings chosen in the motion options mockup) ---------- */
+.backdrop { animation: fadeIn 340ms ease-out backwards; }
+@keyframes sheetIn { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sheetOut { to { transform: translateY(100%); } }
+@keyframes fadeOut { to { opacity: 0; } }
+.sheetwrap.closing { pointer-events: none; }
+.sheetwrap.closing .sheet { animation: sheetOut 255ms cubic-bezier(.5, 0, .8, .4) both; }
+.sheetwrap.closing .backdrop { animation: fadeOut 255ms ease-in both; }
+button, div[data-act]:not(.backdrop) { transition: transform 180ms cubic-bezier(.2, .8, .2, 1); }
+button:active, div[data-act]:not(.backdrop):active { transform: scale(.96); transition-duration: 60ms; }
+@media (prefers-reduced-motion: reduce) { button, div[data-act] { transition: none !important; } .tabs .ind { transition: none; } .sheet, .backdrop { animation-duration: .01ms !important; } .chart .seg-arc { transition: none; } }

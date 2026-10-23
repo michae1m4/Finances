@@ -3,7 +3,7 @@
    Money — app logic. Reads the finance Sheet through Apps Script (read-only).
    Sections: helpers · data · filters · charts · screens · sheets · events · demo · start
    ============================================================ */
-const VERSION = 11;
+const VERSION = 12;
 
 /* Colors. The app is neutral graphite with two pops: lime (income, the accent) and gold (spending).
    The category donuts and the category breakdowns under them use a wider set that starts with the same gold and an olive-lime, so slices can be told apart:
@@ -17,6 +17,20 @@ const quietColor = type => type === 'Income' ? '#a2dc3e' : type === 'Expense' ? 
 
 /* ---------- helpers ---------- */
 const $ = (s, root) => (root || document).querySelector(s);
+/* ---------- motion (timings chosen in the motion options mockup) ---------- */
+const REDUCE = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const MOT = { tab: 320, sheet: 340, barDur: 900, barStag: 60, donut: 900, list: 500, listStag: 100, hero: 1100 };
+const EASE = 'cubic-bezier(.2,.8,.2,1)';
+let A = { c: false, p: false };            /* what to animate on the next render: charts, page (numbers + lists) */
+const animAll = () => { A.c = true; A.p = true; };
+const lead = () => (document.getElementById('splash') ? Math.max(0, 2500 - performance.now()) : 0);   /* wait for the splash to fade */
+function anim(el, kf, o) { if (REDUCE || !el || !el.animate) return null; return el.animate(kf, o); }
+function countUp(el, to, fmt, dur, delay) {
+  if (REDUCE) return;
+  const t0 = performance.now() + delay; el.textContent = fmt(0);
+  (function f(n) { const p = Math.min(1, Math.max(0, (n - t0) / dur)), e = 1 - Math.pow(1 - p, 3); el.textContent = fmt(to * e); if (p < 1) requestAnimationFrame(f); })(performance.now());
+}
+document.addEventListener('touchstart', () => {}, { passive: true });   /* lets :active press feedback work on iPhone */
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pad = n => String(n).padStart(2, '0');
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -135,7 +149,7 @@ function showTip(html, x, y) {
   tip.style.left = left + 'px'; tip.style.top = top + 'px';
 }
 let tipOwner = null;
-const hideTip = () => { tip.classList.add('hidden'); tipOwner = null; };
+const hideTip = () => { tip.classList.add('hidden'); tipOwner = null; document.querySelectorAll('.seg-arc.sel').forEach(x => x.classList.remove('sel')); };
 /* tooltip pinned at a fixed spot: centred on cx, at the top of the chart */
 function showTipPinned(html, cx, top) {
   tip.innerHTML = html; tip.classList.remove('hidden');
@@ -153,7 +167,7 @@ function barPath(x, y, w, h, r) {
     'L' + (x + w - r) + ',' + y + 'Q' + (x + w) + ',' + y + ' ' + (x + w) + ',' + (y + r) + 'L' + (x + w) + ',' + (y + h) + 'Z';
 }
 /* Grouped columns. series: [{name,color,values}] · labels: category labels · tipFn(i) -> html */
-function barsChart(host, labels, series, tipFn) {
+function barsChart(host, labels, series, tipFn, animate) {
   const w = host.clientWidth || 340, h = 190, pad = { l: 38, r: 4, t: 10, b: 24 };
   const iw = w - pad.l - pad.r, ih = h - pad.t - pad.b, n = labels.length;
   const sc = niceScale(Math.max(0, ...series.flatMap(s => s.values)));
@@ -165,7 +179,7 @@ function barsChart(host, labels, series, tipFn) {
     const cx = pad.l + band * (i + .5), total = series.length * bw + (series.length - 1) * 2;
     series.forEach((s, k) => {
       const v = s.values[i], bh = v / sc.max * ih;
-      if (bh > 0.5) g += '<path d="' + barPath(cx - total / 2 + k * (bw + 2), y(v), bw, bh, 4) + '" fill="' + s.color + '"/>';
+      if (bh > 0.5) g += '<path class="bar-p" data-g="' + i + '" data-k="' + k + '" d="' + barPath(cx - total / 2 + k * (bw + 2), y(v), bw, bh, 4) + '" fill="' + s.color + '"/>';
     });
     if (n <= 8 || i % 2 === 0 || i === n - 1) g += '<text class="ax" x="' + cx + '" y="' + (h - 6) + '" text-anchor="middle">' + esc(lb) + '</text>';
     /* tap targets are the bars themselves, so empty space above them scrolls normally */
@@ -175,6 +189,11 @@ function barsChart(host, labels, series, tipFn) {
     });
   });
   host.innerHTML = '<svg class="chart" viewBox="0 0 ' + w + ' ' + h + '" role="img">' + g + '</svg>';
+  if (animate || A.c) {
+    const L = lead(), d = MOT.barDur, st = MOT.barStag;
+    host.querySelectorAll('.bar-p').forEach(p => anim(p, [{ transform: 'scaleY(0)' }, { transform: 'scaleY(1)' }], { duration: d, delay: L + (+p.dataset.g) * st + (+p.dataset.k ? st * .45 : 0), easing: EASE, fill: 'backwards' }));
+    host.querySelectorAll('.gl, .ax').forEach(l => anim(l, [{ opacity: 0 }, { opacity: 1 }], { duration: d * .5, delay: L, fill: 'backwards' }));
+  }
   host.querySelectorAll('.hit.bar').forEach(r => {
     r.addEventListener('click', () => {
       const i = +r.dataset.i;
@@ -198,12 +217,21 @@ function donut(host, items, total, onPick, opts) {
     let d;
     if (frac >= 0.999) { d = 'M' + cx + ',' + (cx - r) + 'A' + r + ',' + r + ' 0 1 1 ' + (cx - .01) + ',' + (cx - r); }
     else { const p0 = pt(s), p1 = pt(e); d = 'M' + p0[0].toFixed(2) + ',' + p0[1].toFixed(2) + 'A' + r + ',' + r + ' 0 ' + (e - s > Math.PI ? 1 : 0) + ' 1 ' + p1[0].toFixed(2) + ',' + p1[1].toFixed(2); }
-    g += '<path class="seg-arc" data-i="' + i + '" d="' + d + '" fill="none" stroke="' + it.color + '" stroke-width="' + sw + '"/>';
+    g += '<path class="seg-arc" data-i="' + i + '" pathLength="100" d="' + d + '" fill="none" stroke="' + it.color + '" stroke-width="' + sw + '"/>';
     hits += '<path class="seg-hit" data-i="' + i + '" d="' + d + '" fill="none" stroke="transparent" stroke-width="46"/>';
   });
   g += hits;
   g += '<text class="ctr-n" x="' + cx + '" y="' + (cx + 4) + '" text-anchor="middle">' + m0(total) + '</text><text class="ctr-l" x="' + cx + '" y="' + (cx + 24) + '" text-anchor="middle">' + (opts.label || 'spent') + '</text>';
   host.innerHTML = '<svg class="chart" viewBox="0 0 ' + size + ' ' + size + '" role="img">' + g + '</svg>';
+  if (A.c) {
+    const L = lead(), d = MOT.donut; let acc2 = 0;
+    host.querySelectorAll('.seg-arc').forEach((p, i) => {
+      const f = items[i].value / total;
+      anim(p, [{ strokeDasharray: '0 100' }, { strokeDasharray: '100 100' }], { duration: Math.max(60, f * d), delay: L + acc2 * d, easing: 'linear', fill: 'backwards' });
+      acc2 += f;
+    });
+    const cn = host.querySelector('.ctr-n'); if (cn) countUp(cn, total, m0, d, L);
+  }
   host.querySelectorAll('.seg-hit').forEach(p => {
     const i = +p.dataset.i, it = items[i];
     if (opts.tipFn) {
@@ -213,6 +241,7 @@ function donut(host, items, total, onPick, opts) {
         const hr = host.getBoundingClientRect();
         showTipPinned(opts.tipFn(it), hr.left + hr.width / 2, hr.top + 4);
         tipOwner = { host: host, i: i };
+        host.querySelectorAll('.seg-arc').forEach(x => x.classList.toggle('sel', +x.dataset.i === i));
       });
       return;
     }
@@ -451,9 +480,15 @@ function openSheet(html, foot) {
   const body = $('#sheetBody'), f = $('#sheetFoot');
   body.innerHTML = html; body.classList.toggle('footed', !!foot);
   f.innerHTML = foot || ''; f.classList.toggle('hidden', !foot);
-  $('#sheetWrap').classList.remove('hidden'); body.scrollTop = 0;
+  clearTimeout(sheetTimer); const w = $('#sheetWrap'); w.classList.remove('closing'); w.classList.remove('hidden'); body.scrollTop = 0;
 }
-function closeSheet() { $('#sheetWrap').classList.add('hidden'); resetSheetStyle(); hideTip(); }
+let sheetTimer;
+function closeSheet(instant) {
+  const w = $('#sheetWrap'); clearTimeout(sheetTimer); hideTip();
+  if (instant === true || REDUCE || w.classList.contains('hidden')) { w.classList.add('hidden'); w.classList.remove('closing'); resetSheetStyle(); return; }
+  w.classList.add('closing');
+  sheetTimer = setTimeout(() => { w.classList.add('hidden'); w.classList.remove('closing'); resetSheetStyle(); }, Math.round(MOT.sheet * .75));
+}
 /* drag down from the handle or the heading area (anything above the first option) to dismiss */
 (function sheetDrag() {
   const sheet = $('.sheet'), back = $('#sheetWrap .backdrop');
@@ -479,7 +514,7 @@ function closeSheet() { $('#sheetWrap').classList.add('hidden'); resetSheetStyle
     const was = st.drag, t0 = st.t; st = null;
     if (!was) return;
     const v = dy / Math.max(1, e.timeStamp - t0);
-    if (dy > 110 || (v > 0.6 && dy > 30)) { sheet.style.transition = 'transform .2s ease-in'; sheet.style.transform = 'translateY(100%)'; back.style.transition = 'opacity .2s'; back.style.opacity = '0'; setTimeout(() => { back.style.transition = ''; closeSheet(); }, 200); }
+    if (dy > 110 || (v > 0.6 && dy > 30)) { sheet.style.transition = 'transform .2s ease-in'; sheet.style.transform = 'translateY(100%)'; back.style.transition = 'opacity .2s'; back.style.opacity = '0'; setTimeout(() => { back.style.transition = ''; closeSheet(true); }, 200); }
     else { sheet.style.transition = 'transform .2s ease-out'; sheet.style.transform = ''; back.style.opacity = ''; }
   };
   sheet.addEventListener('pointerup', end); sheet.addEventListener('pointercancel', end);
@@ -522,7 +557,7 @@ function openCategory(name, sort) {
   const keys = monthsBetween(r[0], r[1]); let labels, vals;
   if (keys.length >= 2) { labels = keys.length > 12 ? keys.slice(-12) : keys; vals = labels.map(k => all.filter(t => monthKey(t.date) === k).reduce((s, t) => s + t.amount, 0)); labels = labels.map(mLabel); }
   else { const n = Math.ceil((diffDays(r[0], r[1]) + 1) / 7); labels = []; vals = []; for (let i = 0; i < n; i++) { const a = addDays(r[0], i * 7), b = addDays(r[0], i * 7 + 6); labels.push(shortDate(a)); vals.push(all.filter(t => t.date >= a && t.date <= b).reduce((s, t) => s + t.amount, 0)); } }
-  barsChart($('#drillHost'), labels, [{ name: name, color: color, values: vals }], i => '<b>' + esc(labels[i]) + '</b>' + m2(vals[i]));
+  barsChart($('#drillHost'), labels, [{ name: name, color: color, values: vals }], i => '<b>' + esc(labels[i]) + '</b>' + m2(vals[i]), true);
 }
 
 /* ---------- navigation + events ---------- */
@@ -532,13 +567,45 @@ function render() {
   const t = S.tab;
   ['home', 'spend', 'activity', 'upcoming'].forEach(v => $('#' + v + 'View').classList.toggle('hidden', v !== t));
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.v === t));
+  $('.tabs .ind').style.transform = 'translateX(calc(' + TAB_ORDER.indexOf(t) + ' * (100% + 4px)))';
   if (t === 'home') renderHome(); else if (t === 'spend') renderSpend(); else if (t === 'activity') renderActivity(false); else renderUpcoming();
+  playPage(t);
+  if (!S.settle) { A.c = false; A.p = false; }
+}
+const TAB_ORDER = ['home', 'spend', 'activity', 'upcoming'];
+/* big numbers count up and the first rows of each list arrive one after another */
+function playPage(t) {
+  if (!A.p || REDUCE) return;
+  const L = lead(), v = $('#' + t + 'View');
+  v.querySelectorAll('.hero-num').forEach(el => { const to = parseFloat(el.textContent.replace(/[^0-9.]/g, '')); if (!isNaN(to)) countUp(el, to, m0, MOT.hero, L + 120); });
+  Array.from(v.querySelectorAll('.list > *')).slice(0, 8).forEach((r, i) => anim(r, [{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'none' }], { duration: MOT.list, delay: L + 120 + i * MOT.listStag, easing: EASE, fill: 'backwards' }));
+}
+/* switching tabs: the old page slides away as the new one slides in */
+function makeGhost(id) {
+  if (REDUCE) return null;
+  const el = $('#' + id + 'View'); if (!el || el.classList.contains('hidden')) return null;
+  const r = el.getBoundingClientRect(), g = el.cloneNode(true);
+  g.removeAttribute('id'); g.querySelectorAll('[id]').forEach(n => n.removeAttribute('id')); g.querySelectorAll('[data-act]').forEach(n => n.removeAttribute('data-act'));
+  g.style.cssText = 'position:fixed;left:' + r.left + 'px;top:' + r.top + 'px;width:' + r.width + 'px;margin:0;pointer-events:none;z-index:15;overflow:hidden;max-height:' + innerHeight + 'px';
+  return g;
+}
+function slideViews(ghost, dir, v) {
+  anim($('#' + v + 'View'), [{ opacity: 0, transform: 'translateX(' + dir * 28 + 'px)' }, { opacity: 1, transform: 'none' }], { duration: MOT.tab, easing: EASE });
+  if (!ghost) return;
+  document.body.appendChild(ghost);
+  const a = ghost.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateX(' + (-dir * 28) + 'px)' }], { duration: MOT.tab * .7, easing: 'ease-out', fill: 'forwards' });
+  a.onfinish = () => ghost.remove();
 }
 document.addEventListener('click', e => {
   const b = e.target.closest('[data-act]'); if (!b) return;
   const a = b.dataset.act, v = b.dataset.v;
   switch (a) {
-    case 'tab': S.tab = v; closeSheet(); render(); scrollTo(0, 0); break;
+    case 'tab': {
+      const from = S.tab, ghost = from !== v ? makeGhost(from) : null;
+      S.tab = v; closeSheet(true); animAll(); render(); scrollTo(0, 0);
+      if (from !== v) slideViews(ghost, TAB_ORDER.indexOf(v) > TAB_ORDER.indexOf(from) ? 1 : -1, v);
+      break;
+    }
     case 'pickPeriod': pickPeriod(); break;
     case 'pickCats': pickCats(); break;
     case 'pickAcct': pickAcct(); break;
@@ -546,17 +613,17 @@ document.addEventListener('click', e => {
     case 'applyPeriod': {
       if (pend.id === 'custom') { const f = $('#dFrom').value, t = $('#dTo').value; if (!f || !t) break; S.period = { id: 'custom', from: f, to: t }; }
       else S.period = { id: pend.id };
-      S.limit = 60; closeSheet(); render(); break;
+      S.limit = 60; closeSheet(); animAll(); render(); break;
     }
     case 'toggleCat': if (S.catFilter.has(v)) S.catFilter.delete(v); else S.catFilter.add(v); b.classList.toggle('on'); S.limit = 60; render(); break;
-    case 'clearCats': S.catFilter.clear(); closeSheet(); render(); break;
-    case 'setAcct': S.account = v; S.limit = 60; closeSheet(); render(); break;
+    case 'clearCats': S.catFilter.clear(); closeSheet(); animAll(); render(); break;
+    case 'setAcct': S.account = v; S.limit = 60; closeSheet(); animAll(); render(); break;
     case 'closeSheet': closeSheet(); break;
     case 'openCat': openCategory(v); break;
     case 'drillSort': openCategory(drill.name, v); break;
-    case 'toggleSpendTable': S.spendTable = !S.spendTable; render(); break;
-    case 'toggleIncTable': S.incTable = !S.incTable; render(); break;
-    case 'toggleTable': S.tableView = !S.tableView; render(); break;
+    case 'toggleSpendTable': S.spendTable = !S.spendTable; A.c = true; render(); break;
+    case 'toggleIncTable': S.incTable = !S.incTable; A.c = true; render(); break;
+    case 'toggleTable': S.tableView = !S.tableView; A.c = true; render(); break;
     case 'type': S.type = v; S.limit = 60; renderActivity(true); break;
     case 'sort': S.sort = v; renderActivity(true); break;
     case 'more': S.limit += 60; renderActivity(true); break;
@@ -579,10 +646,10 @@ async function refresh() {
     const res = await fetch(apiUrl()), j = await res.json();
     if (j.error) throw new Error(j.error);
     localStorage.setItem('fin_cache', JSON.stringify(j));
-    S.updatedAt = Date.now(); S.status = ''; ingest(j); showApp();
+    S.updatedAt = Date.now(); S.status = ''; S.settle = false; ingest(j); showApp();
   } catch (err) {
     if (String(err.message).indexOf('Bad key') >= 0) { localStorage.removeItem('fin_key'); showSetup('That key was not accepted. Enter it again.'); return; }
-    S.status = S.data ? 'Offline, showing saved data' : ''; if (S.data) render(); else showSetup('Could not load your data: ' + err.message);
+    S.status = S.data ? 'Offline, showing saved data' : ''; S.settle = false; if (S.data) render(); else showSetup('Could not load your data: ' + err.message);
   }
 }
 function showSetup(msg) { $('#app').classList.add('hidden'); $('#setupView').classList.remove('hidden'); $('#setupMsg').textContent = msg || ''; }
@@ -624,6 +691,7 @@ function makeDemo() {
 
 /* ---------- start ---------- */
 (function start() {
+  animAll();
   const demo = /[?&]demo=1/.test(location.search);
   const configured = typeof CONFIG !== 'undefined' && CONFIG.API_URL && CONFIG.API_URL.indexOf('PASTE') !== 0;
   if (demo || !configured) {
@@ -631,6 +699,7 @@ function makeDemo() {
     S.demo = true; S.updatedAt = Date.now(); ingest(makeDemo()); showApp(); return;
   }
   if (!localStorage.getItem('fin_key')) { showSetup(''); return; }
+  S.settle = true;   /* keep the opening animations for the final render, after fresh data arrives */
   try { const c = JSON.parse(localStorage.getItem('fin_cache') || 'null'); if (c) { ingest(c); showApp(); } } catch (e) { /* ignore a bad cache */ }
   refresh();
 })();
