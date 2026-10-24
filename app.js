@@ -24,8 +24,8 @@ const EASE = 'cubic-bezier(.2,.8,.2,1)';
 const EASE_TAB = 'cubic-bezier(.4,0,.2,1)';   /* even, unhurried: the same for every page switch */
 let A = { c: false, p: false };            /* what to animate on the current render: charts, page (numbers + lists) */
 /* Chart, number and list animations play once per screen, and only in a "fresh" visit: the first open, or
-   an open 10+ minutes after the app was last used. Reopening sooner skips them (the splash is skipped too). */
-const GAP = 10 * 60 * 1000, SEEN_KEY = 'fin_seen';
+   an open 3+ minutes after the app was last used. Reopening sooner skips them (the splash is skipped too). */
+const GAP = 3 * 60 * 1000, SEEN_KEY = 'fin_seen';
 let FRESH = window.__fresh !== false, hiddenAt = 0, lastStamp = 0;
 const SEEN = {};
 const stamp = () => { try { localStorage.setItem(SEEN_KEY, String(Date.now())); } catch (e) { /* ignore */ } };

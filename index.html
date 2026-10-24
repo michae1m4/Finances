@@ -77,9 +77,9 @@
   <script>
     (function () {
       var s = document.getElementById('splash');
-      /* the splash and the opening animations only play on a fresh open: the first one, or 10+ minutes after the app was last used */
+      /* the splash and the opening animations only play on a fresh open: the first one, or 3+ minutes after the app was last used */
       var fresh = true;
-      try { var last = +localStorage.getItem('fin_seen') || 0; fresh = Date.now() - last >= 600000; localStorage.setItem('fin_seen', String(Date.now())); } catch (e) { /* ignore */ }
+      try { var last = +localStorage.getItem('fin_seen') || 0; fresh = Date.now() - last >= 180000; localStorage.setItem('fin_seen', String(Date.now())); } catch (e) { /* ignore */ }
       window.__fresh = fresh;
       if (!s) return;
       if (!fresh) { s.parentNode.removeChild(s); return; }
