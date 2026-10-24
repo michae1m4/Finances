@@ -22,29 +22,62 @@ const REDUCE = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const MOT = { tab: 560, sheet: 340, barDur: 900, barStag: 60, donut: 900, list: 500, listStag: 100, hero: 1100 };
 const EASE = 'cubic-bezier(.2,.8,.2,1)';
 const EASE_TAB = 'cubic-bezier(.4,0,.2,1)';   /* even, unhurried: the same for every page switch */
-let A = { c: false, p: false };            /* what to animate on the current render: charts, page (numbers + lists) */
-/* Chart, number and list animations play once per screen, and only in a "fresh" visit: the first open, or
-   an open 3+ minutes after the app was last used. Reopening sooner skips them (the splash is skipped too). */
-const GAP = 3 * 60 * 1000, SEEN_KEY = 'fin_seen';
-let FRESH = window.__fresh !== false, hiddenAt = 0, lastStamp = 0;
-const SEEN = {};
+/* Charts, numbers and lists animate every time the app is opened, once each, and only when they are on screen:
+   anything further down the page waits until you scroll to it. (The splash has its own 3-minute rule in index.html.) */
+const SEEN_KEY = 'fin_seen';
+let hiddenAt = 0, lastStamp = 0;
+const PLAYED = {};          /* which animations already played since the app was opened */
+const FORCE = {};           /* chart/table toggles: play right now, even if it played before */
 const stamp = () => { try { localStorage.setItem(SEEN_KEY, String(Date.now())); } catch (e) { /* ignore */ } };
 addEventListener('pointerdown', () => { if (Date.now() - lastStamp > 20000) { lastStamp = Date.now(); stamp(); } }, { passive: true, capture: true });
 addEventListener('pagehide', stamp);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); stamp(); return; }
   if (!hiddenAt) return;
-  const away = Date.now() - hiddenAt; hiddenAt = 0; stamp();
-  if (away >= GAP) { FRESH = true; Object.keys(SEEN).forEach(k => delete SEEN[k]); if (S.data && !$('#app').classList.contains('hidden')) render(); }
-  else FRESH = false;
+  hiddenAt = 0; stamp();
+  Object.keys(PLAYED).forEach(k => delete PLAYED[k]);   /* reopened: everything animates again */
+  if (S.data && !$('#app').classList.contains('hidden') && $('#sheetWrap').classList.contains('hidden')) render();
 });
-let extraLead = 0;   /* while a page slides in, charts and lists wait until it has mostly arrived */
-const lead = () => (document.getElementById('splash') ? Math.max(0, 2500 - performance.now()) : 0) + extraLead;   /* wait for the splash to fade */
+let slideUntil = 0;   /* while a page slides in, charts and lists wait until it has mostly arrived */
+const lead = () => Math.max(document.getElementById('splash') ? 2500 - performance.now() : 0, slideUntil - performance.now(), 0);
 function anim(el, kf, o) { if (REDUCE || !el || !el.animate) return null; return el.animate(kf, o); }
+let PEND = null;
+/* mk: build an animation; while a card is being drawn it is held on its first frame until released */
+function mk(el, kf, o) {
+  if (REDUCE || !el || !el.animate) return null;
+  const a = el.animate(kf, o);
+  if (PEND) { a.pause(); PEND.push({ a: a, delay: o.delay || 0 }); }
+  return a;
+}
+function withAnims(fn) { const prev = PEND; PEND = []; try { fn(); return PEND; } finally { PEND = prev; } }
+function release(list) { const L = lead(); list.forEach(x => { x.a.effect.updateTiming({ delay: x.delay + L }); x.a.play(); }); }
+const IO = 'IntersectionObserver' in window ? new IntersectionObserver(es => es.forEach(e => {
+  if (!e.isIntersecting) return;
+  IO.unobserve(e.target); const f = e.target.__rel; e.target.__rel = null; if (f) f();
+}), { rootMargin: '0px 0px -80px 0px' }) : null;
+/* start the held animations when el scrolls into view */
+function arm(key, el, list) {
+  if (!list.length) return;
+  if (!IO || !el) { PLAYED[key] = true; release(list); return; }
+  el.__rel = () => { if (PLAYED[key]) return; PLAYED[key] = true; release(list); };
+  IO.observe(el);
+}
+/* draw(animate) builds one card. Plays when it first scrolls into view, or right away after a chart/table toggle. */
+function playCard(key, el, draw) {
+  const force = !!FORCE[key]; delete FORCE[key];
+  if (REDUCE || !el || (!force && PLAYED[key])) { draw(false); return; }
+  const list = withAnims(() => draw(true));
+  if (force) { PLAYED[key] = true; release(list); } else arm(key, el, list);
+}
+function tableAnims(host) {
+  Array.from(host.querySelectorAll('tr')).forEach((r, i) => mk(r, [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: MOT.list, delay: Math.min(i, 8) * MOT.listStag * .6, easing: EASE, fill: 'backwards' }));
+}
 function countUp(el, to, fmt, dur, delay) {
   if (REDUCE) return;
-  const t0 = performance.now() + delay; el.textContent = fmt(0);
-  (function f(n) { const p = Math.min(1, Math.max(0, (n - t0) / dur)), e = 1 - Math.pow(1 - p, 3); el.textContent = fmt(to * e); if (p < 1) requestAnimationFrame(f); })(performance.now());
+  let d = delay; el.textContent = fmt(0);
+  const run = () => { const t0 = performance.now() + d; (function f(n) { const p = Math.min(1, Math.max(0, (n - t0) / dur)), e = 1 - Math.pow(1 - p, 3); el.textContent = fmt(to * e); if (p < 1) requestAnimationFrame(f); })(performance.now()); };
+  if (PEND) PEND.push({ a: { effect: { updateTiming: t => { d = t.delay; } }, play: run }, delay: delay });
+  else run();
 }
 document.addEventListener('touchstart', () => {}, { passive: true });   /* lets :active press feedback work on iPhone */
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -205,10 +238,10 @@ function barsChart(host, labels, series, tipFn, animate) {
     });
   });
   host.innerHTML = '<svg class="chart" viewBox="0 0 ' + w + ' ' + h + '" role="img">' + g + '</svg>';
-  if (animate || A.c) {
-    const L = lead(), d = MOT.barDur, st = MOT.barStag;
-    host.querySelectorAll('.bar-p').forEach(p => anim(p, [{ transform: 'scaleY(0)' }, { transform: 'scaleY(1)' }], { duration: d, delay: L + (+p.dataset.g) * st + (+p.dataset.k ? st * .45 : 0), easing: EASE, fill: 'backwards' }));
-    host.querySelectorAll('.gl, .ax').forEach(l => anim(l, [{ opacity: 0 }, { opacity: 1 }], { duration: d * .5, delay: L, fill: 'backwards' }));
+  if (animate) {
+    const d = MOT.barDur, st = MOT.barStag;
+    host.querySelectorAll('.bar-p').forEach(p => mk(p, [{ transform: 'scaleY(0)' }, { transform: 'scaleY(1)' }], { duration: d, delay: (+p.dataset.g) * st + (+p.dataset.k ? st * .45 : 0), easing: EASE, fill: 'backwards' }));
+    host.querySelectorAll('.gl, .ax').forEach(l => mk(l, [{ opacity: 0 }, { opacity: 1 }], { duration: d * .5, delay: 0, fill: 'backwards' }));
   }
   host.querySelectorAll('.hit.bar').forEach(r => {
     r.addEventListener('click', () => {
@@ -239,14 +272,14 @@ function donut(host, items, total, onPick, opts) {
   g += hits;
   g += '<text class="ctr-n" x="' + cx + '" y="' + (cx + 4) + '" text-anchor="middle">' + m0(total) + '</text><text class="ctr-l" x="' + cx + '" y="' + (cx + 24) + '" text-anchor="middle">' + (opts.label || 'spent') + '</text>';
   host.innerHTML = '<svg class="chart" viewBox="0 0 ' + size + ' ' + size + '" role="img">' + g + '</svg>';
-  if (A.c) {
-    const L = lead(), d = MOT.donut; let acc2 = 0;
+  if (opts.animate) {
+    const d = MOT.donut; let acc2 = 0;
     host.querySelectorAll('.seg-arc').forEach((p, i) => {
       const f = items[i].value / total;
-      anim(p, [{ strokeDasharray: '0 100' }, { strokeDasharray: '100 100' }], { duration: Math.max(60, f * d), delay: L + acc2 * d, easing: 'linear', fill: 'backwards' });
+      mk(p, [{ strokeDasharray: '0 100' }, { strokeDasharray: '100 100' }], { duration: Math.max(60, f * d), delay: acc2 * d, easing: 'linear', fill: 'backwards' });
       acc2 += f;
     });
-    const cn = host.querySelector('.ctr-n'); if (cn) countUp(cn, total, m0, d, L);
+    const cn = host.querySelector('.ctr-n'); if (cn) countUp(cn, total, m0, d, 0);
   }
   host.querySelectorAll('.seg-hit').forEach(p => {
     const i = +p.dataset.i, it = items[i];
@@ -333,15 +366,18 @@ function renderHome() {
 }
 function drawHomeCharts(cur, inc, spent) {
   const md = monthlyData(), host = $('#barsHost');
-  if (S.tableView) {
-    host.innerHTML = '<table class="tbl"><tr><th>Month</th><th>Income</th><th>Spending</th><th>Net</th></tr>' +
-      md.keys.map((k, i) => '<tr><td>' + mLabelFull(k) + '</td><td>' + m0(md.inc[i]) + '</td><td>' + m0(md.exp[i]) + '</td><td>' + m0(md.inc[i] - md.exp[i]) + '</td></tr>').join('') + '</table>';
-  } else {
-    barsChart(host, md.keys.map(mLabel), [{ name: 'Income', color: C_INCOME, values: md.inc }, { name: 'Spending', color: C_SPEND, values: md.exp }],
-      i => '<b>' + mLabelFull(md.keys[i]) + '</b><i style="background:' + C_INCOME + '"></i>Income ' + m2(md.inc[i]) + '<br><i style="background:' + C_SPEND + '"></i>Spending ' + m2(md.exp[i]) + '<br>Net ' + m2(md.inc[i] - md.exp[i]));
-  }
-  drawCatBreakdown('spendCard', S.spendTable, cur, 'Expense', spent, inc);
-  drawCatBreakdown('incCard', S.incTable, cur, 'Income', inc, inc);
+  playCard('home:bars', host.parentNode, animate => {
+    if (S.tableView) {
+      host.innerHTML = '<table class="tbl"><tr><th>Month</th><th>Income</th><th>Spending</th><th>Net</th></tr>' +
+        md.keys.map((k, i) => '<tr><td>' + mLabelFull(k) + '</td><td>' + m0(md.inc[i]) + '</td><td>' + m0(md.exp[i]) + '</td><td>' + m0(md.inc[i] - md.exp[i]) + '</td></tr>').join('') + '</table>';
+      if (animate) tableAnims(host);
+    } else {
+      barsChart(host, md.keys.map(mLabel), [{ name: 'Income', color: C_INCOME, values: md.inc }, { name: 'Spending', color: C_SPEND, values: md.exp }],
+        i => '<b>' + mLabelFull(md.keys[i]) + '</b><i style="background:' + C_INCOME + '"></i>Income ' + m2(md.inc[i]) + '<br><i style="background:' + C_SPEND + '"></i>Spending ' + m2(md.exp[i]) + '<br>Net ' + m2(md.inc[i] - md.exp[i]), animate);
+    }
+  });
+  playCard('home:spendCard', $('#spendCard'), animate => drawCatBreakdown('spendCard', S.spendTable, cur, 'Expense', spent, inc, animate));
+  playCard('home:incCard', $('#incCard'), animate => drawCatBreakdown('incCard', S.incTable, cur, 'Income', inc, inc, animate));
 }
 
 /* Spending / income by category: a table or a donut, with the total in the middle */
@@ -349,7 +385,7 @@ const pct1 = v => (v * 100).toFixed(1) + '%';
 function catCard(id, title, asTable) {
   return '<div class="card" id="' + id + '"><div class="cardhead"><h2>' + title + '</h2><button class="chip small" data-act="' + (id === 'spendCard' ? 'toggleSpendTable' : 'toggleIncTable') + '">' + (asTable ? 'Chart' : 'Table') + '</button></div><div class="bd"></div></div>';
 }
-function drawCatBreakdown(id, asTable, cur, type, total, income) {
+function drawCatBreakdown(id, asTable, cur, type, total, income, animate) {
   const host = $('#' + id + ' .bd'), isSpend = type === 'Expense';
   const by = new Map(); cur.forEach(t => { if (t.type === type) by.set(t.category, (by.get(t.category) || 0) + t.amount); });
   const incomeOrder = (S.data.categories || []).filter(c => c.group === 'Income').map(c => c.name);
@@ -362,10 +398,12 @@ function drawCatBreakdown(id, asTable, cur, type, total, income) {
       items.map(it => '<tr><td><span class="dot" style="display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:8px;background:' + it.color + '"></span>' + esc(it.name) + '</td><td>' + m2(it.value) + '</td><td>' + (isSpend ? ofIncome(it.value) : pct1(it.value / total)) + '</td></tr>').join('') +
       '<tr class="total"><td>Total</td><td>' + m2(total) + '</td><td>' + (isSpend ? ofIncome(total) : '100.0%') + '</td></tr></table>' +
       (isSpend ? '<div class="sub" style="margin-top:10px">Percent of the income in this period.' + (income > 0 ? '' : ' There is no income in this period.') + '</div>' : '');
+    if (animate) tableAnims(host);
     return;
   }
   host.innerHTML = '<div class="donutwrap"></div><div class="legend" style="justify-content:center">' + items.map(it => '<span><i style="background:' + it.color + '"></i>' + esc(it.name) + '</span>').join('') + '</div>';
   donut($('.donutwrap', host), items, total, null, {
+    animate: animate,
     label: isSpend ? 'spent' : 'income',
     tipFn: it => '<b>' + esc(it.name) + '</b>' + m2(it.value) + '<br>' + pct1(it.value / total) + ' of ' + (isSpend ? 'spending' : 'income') + (isSpend && income > 0 ? '<br>' + ofIncome(it.value) + ' of income' : '')
   });
@@ -394,7 +432,7 @@ function renderSpend() {
       ? '<div class="card"><div class="donutwrap" id="donutHost"></div><div class="list">' + items.map(it => catRow(it.name, it.value, total, r, true)).join('') + '</div></div>' +
         '<div class="sub" style="text-align:center;padding:0 12px">Tap a category or a slice to see every transaction in it. Budgets are your monthly target × the months in this period.</div>'
       : '<div class="card"><div class="empty">No spending in this period. Try a longer period or clear the filters.</div></div>') + footer();
-  if (items.length) donut($('#donutHost'), items, total, openCategory);
+  if (items.length) playCard('spend:donut', $('#donutHost'), animate => donut($('#donutHost'), items, total, openCategory, { animate: animate }));
 }
 
 function renderActivity(keepSearch) {
@@ -573,30 +611,34 @@ function openCategory(name, sort) {
   const keys = monthsBetween(r[0], r[1]); let labels, vals;
   if (keys.length >= 2) { labels = keys.length > 12 ? keys.slice(-12) : keys; vals = labels.map(k => all.filter(t => monthKey(t.date) === k).reduce((s, t) => s + t.amount, 0)); labels = labels.map(mLabel); }
   else { const n = Math.ceil((diffDays(r[0], r[1]) + 1) / 7); labels = []; vals = []; for (let i = 0; i < n; i++) { const a = addDays(r[0], i * 7), b = addDays(r[0], i * 7 + 6); labels.push(shortDate(a)); vals.push(all.filter(t => t.date >= a && t.date <= b).reduce((s, t) => s + t.amount, 0)); } }
-  barsChart($('#drillHost'), labels, [{ name: name, color: color, values: vals }], i => '<b>' + esc(labels[i]) + '</b>' + m2(vals[i]), FRESH && !SEEN.drill);
-  SEEN.drill = true;
+  playCard('drill', $('#drillHost'), animate => barsChart($('#drillHost'), labels, [{ name: name, color: color, values: vals }], i => '<b>' + esc(labels[i]) + '</b>' + m2(vals[i]), animate));
 }
 
 /* ---------- navigation + events ---------- */
 function render() {
   if (!S.data) return;
   hideTip();
-  const t = S.tab, go = FRESH && !SEEN[t];
-  A.c = go; A.p = go;
+  const t = S.tab;
+  if (IO) IO.disconnect();
   ['home', 'spend', 'activity', 'upcoming'].forEach(v => $('#' + v + 'View').classList.toggle('hidden', v !== t));
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.v === t));
   $('.tabs .ind').style.transform = 'translateX(calc(' + TAB_ORDER.indexOf(t) + ' * (100% + 4px)))';
   if (t === 'home') renderHome(); else if (t === 'spend') renderSpend(); else if (t === 'activity') renderActivity(false); else renderUpcoming();
   playPage(t);
-  if (!S.settle) { if (go) SEEN[t] = true; A.c = false; A.p = false; }
 }
 const TAB_ORDER = ['home', 'spend', 'activity', 'upcoming'];
 /* big numbers count up and the first rows of each list arrive one after another */
 function playPage(t) {
-  if (!A.p || REDUCE) return;
-  const L = lead(), v = $('#' + t + 'View');
-  v.querySelectorAll('.hero-num').forEach(el => { const to = parseFloat(el.textContent.replace(/[^0-9.]/g, '')); if (!isNaN(to)) countUp(el, to, m0, MOT.hero, L + 120); });
-  Array.from(v.querySelectorAll('.list > *')).slice(0, 8).forEach((r, i) => anim(r, [{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'none' }], { duration: MOT.list, delay: L + 120 + i * MOT.listStag, easing: EASE, fill: 'backwards' }));
+  if (REDUCE) return;
+  const v = $('#' + t + 'View'), hero = v.querySelector('.hero-num');
+  if (hero && !PLAYED[t + ':hero']) {
+    const to = parseFloat(hero.textContent.replace(/[^0-9.]/g, ''));
+    if (!isNaN(to)) arm(t + ':hero', hero, withAnims(() => countUp(hero, to, m0, MOT.hero, 120)));
+  }
+  const rows = Array.from(v.querySelectorAll('.list > *')).slice(0, 8);
+  if (rows.length && !PLAYED[t + ':list']) {
+    arm(t + ':list', rows[0], withAnims(() => rows.forEach((r, i) => mk(r, [{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'none' }], { duration: MOT.list, delay: 120 + i * MOT.listStag, easing: EASE, fill: 'backwards' }))));
+  }
 }
 /* switching tabs: the old page slides away as the new one slides in */
 function makeGhost(id) {
@@ -624,7 +666,7 @@ document.addEventListener('click', e => {
   switch (a) {
     case 'tab': {
       const from = S.tab, ghost = from !== v ? makeGhost(from) : null;
-      S.tab = v; closeSheet(true); extraLead = from !== v ? Math.round(MOT.tab * .6) : 0; render(); extraLead = 0; scrollTo(0, 0);
+      S.tab = v; closeSheet(true); slideUntil = from !== v ? performance.now() + Math.round(MOT.tab * .6) : 0; render(); scrollTo(0, 0);
       if (from !== v) slideViews(ghost, TAB_ORDER.indexOf(v) > TAB_ORDER.indexOf(from) ? 1 : -1, v);
       break;
     }
@@ -643,9 +685,9 @@ document.addEventListener('click', e => {
     case 'closeSheet': closeSheet(); break;
     case 'openCat': openCategory(v); break;
     case 'drillSort': openCategory(drill.name, v); break;
-    case 'toggleSpendTable': S.spendTable = !S.spendTable; render(); break;
-    case 'toggleIncTable': S.incTable = !S.incTable; render(); break;
-    case 'toggleTable': S.tableView = !S.tableView; render(); break;
+    case 'toggleSpendTable': S.spendTable = !S.spendTable; FORCE['home:spendCard'] = true; render(); break;
+    case 'toggleIncTable': S.incTable = !S.incTable; FORCE['home:incCard'] = true; render(); break;
+    case 'toggleTable': S.tableView = !S.tableView; FORCE['home:bars'] = true; render(); break;
     case 'type': S.type = v; S.limit = 60; renderActivity(true); break;
     case 'sort': S.sort = v; renderActivity(true); break;
     case 'more': S.limit += 60; renderActivity(true); break;
@@ -662,13 +704,17 @@ let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() 
 /* ---------- loading ---------- */
 const apiUrl = () => CONFIG.API_URL + (CONFIG.API_URL.indexOf('?') < 0 ? '?' : '&') + 'key=' + encodeURIComponent(localStorage.getItem('fin_key') || '');
 function showApp() { $('#setupView').classList.add('hidden'); $('#app').classList.remove('hidden'); render(); }
+const sig = j => JSON.stringify([j.categories, j.bills, j.transactions]);
 async function refresh() {
-  S.status = 'Updating…'; render();
+  S.status = 'Updating…'; if (!S.settle) render();
   try {
     const res = await fetch(apiUrl()), j = await res.json();
     if (j.error) throw new Error(j.error);
     localStorage.setItem('fin_cache', JSON.stringify(j));
-    S.updatedAt = Date.now(); S.status = ''; S.settle = false; ingest(j); showApp();
+    const nsig = sig(j), same = S.settle && S.data && S.sig === nsig;
+    S.updatedAt = Date.now(); S.status = ''; S.settle = false;
+    if (same) return;   /* nothing changed: leave the screen, and its animations, alone */
+    Object.keys(PLAYED).forEach(k => delete PLAYED[k]); S.sig = nsig; ingest(j); showApp();
   } catch (err) {
     if (String(err.message).indexOf('Bad key') >= 0) { localStorage.removeItem('fin_key'); showSetup('That key was not accepted. Enter it again.'); return; }
     S.status = S.data ? 'Offline, showing saved data' : ''; S.settle = false; if (S.data) render(); else showSetup('Could not load your data: ' + err.message);
@@ -721,7 +767,7 @@ function makeDemo() {
   }
   if (!localStorage.getItem('fin_key')) { showSetup(''); return; }
   S.settle = true;   /* keep the opening animations for the final render, after fresh data arrives */
-  try { const c = JSON.parse(localStorage.getItem('fin_cache') || 'null'); if (c) { ingest(c); showApp(); } } catch (e) { /* ignore a bad cache */ }
+  try { const c = JSON.parse(localStorage.getItem('fin_cache') || 'null'); if (c) { const sg = sig(c); ingest(c); S.sig = sg; showApp(); } } catch (e) { /* ignore a bad cache */ }
   refresh();
 })();
 function showSetupUnconfigured() {

@@ -77,7 +77,7 @@
   <script>
     (function () {
       var s = document.getElementById('splash');
-      /* the splash and the opening animations only play on a fresh open: the first one, or 3+ minutes after the app was last used */
+      /* the splash only plays on a fresh open: the first one, or 3+ minutes after the app was last used */
       var fresh = true;
       try { var last = +localStorage.getItem('fin_seen') || 0; fresh = Date.now() - last >= 180000; localStorage.setItem('fin_seen', String(Date.now())); } catch (e) { /* ignore */ }
       window.__fresh = fresh;
