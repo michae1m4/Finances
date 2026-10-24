@@ -618,13 +618,14 @@ function openCategory(name, sort) {
 function render() {
   if (!S.data) return;
   hideTip();
-  const t = S.tab;
+  const t = S.tab, sy = window.scrollY;   /* the page briefly gets shorter while it is rebuilt, which would throw you to the top */
   if (IO) IO.disconnect();
   ['home', 'spend', 'activity', 'upcoming'].forEach(v => $('#' + v + 'View').classList.toggle('hidden', v !== t));
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.v === t));
   $('.tabs .ind').style.transform = 'translateX(calc(' + TAB_ORDER.indexOf(t) + ' * (100% + 4px)))';
   if (t === 'home') renderHome(); else if (t === 'spend') renderSpend(); else if (t === 'activity') renderActivity(false); else renderUpcoming();
   playPage(t);
+  if (sy > 0) window.scrollTo(0, sy);
 }
 const TAB_ORDER = ['home', 'spend', 'activity', 'upcoming'];
 /* big numbers count up and the first rows of each list arrive one after another */
