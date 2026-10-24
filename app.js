@@ -3,7 +3,7 @@
    Money — app logic. Reads the finance Sheet through Apps Script (read-only).
    Sections: helpers · data · filters · charts · screens · sheets · events · demo · start
    ============================================================ */
-const VERSION = 12;
+const VERSION = 13;
 
 /* Colors. The app is neutral graphite with two pops: lime (income, the accent) and gold (spending).
    The category donuts and the category breakdowns under them use a wider set that starts with the same gold and an olive-lime, so slices can be told apart:
@@ -27,6 +27,8 @@ const EASE_TAB = 'cubic-bezier(.4,0,.2,1)';   /* even, unhurried: the same for e
 const SEEN_KEY = 'fin_seen';
 let hiddenAt = 0, lastStamp = 0;
 const PLAYED = {};          /* which animations already played since the app was opened */
+let GEN = 0;                /* bumped whenever PLAYED is cleared, so a late timer cannot mark something as played */
+const resetPlayed = () => { GEN++; Object.keys(PLAYED).forEach(k => delete PLAYED[k]); };
 const FORCE = {};           /* chart/table toggles: play right now, even if it played before */
 const stamp = () => { try { localStorage.setItem(SEEN_KEY, String(Date.now())); } catch (e) { /* ignore */ } };
 addEventListener('pointerdown', () => { if (Date.now() - lastStamp > 20000) { lastStamp = Date.now(); stamp(); } }, { passive: true, capture: true });
@@ -35,7 +37,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); stamp(); return; }
   if (!hiddenAt) return;
   hiddenAt = 0; stamp();
-  Object.keys(PLAYED).forEach(k => delete PLAYED[k]);   /* reopened: everything animates again */
+  resetPlayed();   /* reopened: everything animates again */
   if (S.data && !$('#app').classList.contains('hidden') && $('#sheetWrap').classList.contains('hidden')) render();
 });
 let slideUntil = 0;   /* while a page slides in, charts and lists wait until it has mostly arrived */
@@ -46,11 +48,17 @@ let PEND = null;
 function mk(el, kf, o) {
   if (REDUCE || !el || !el.animate) return null;
   const a = el.animate(kf, o);
-  if (PEND) { a.pause(); PEND.push({ a: a, delay: o.delay || 0 }); }
+  if (PEND) { a.pause(); PEND.push({ a: a, delay: o.delay || 0, dur: o.duration || 0 }); }
   return a;
 }
 function withAnims(fn) { const prev = PEND; PEND = []; try { fn(); return PEND; } finally { PEND = prev; } }
-function release(list) { const L = lead(); list.forEach(x => { x.a.effect.updateTiming({ delay: x.delay + L }); x.a.play(); }); }
+/* start the held animations; the key counts as played only once they have had time to finish, so a rebuild midway replays them */
+function release(list, key) {
+  const L = lead(); let end = 0;
+  list.forEach(x => { x.a.effect.updateTiming({ delay: x.delay + L }); x.a.play(); end = Math.max(end, x.delay + (x.dur || 0)); });
+  const g = GEN;
+  if (key) setTimeout(() => { if (g === GEN) PLAYED[key] = true; }, end + L + 80);
+}
 const IO = 'IntersectionObserver' in window ? new IntersectionObserver(es => es.forEach(e => {
   if (!e.isIntersecting) return;
   IO.unobserve(e.target); const f = e.target.__rel; e.target.__rel = null; if (f) f();
@@ -58,8 +66,9 @@ const IO = 'IntersectionObserver' in window ? new IntersectionObserver(es => es.
 /* start the held animations when el scrolls into view */
 function arm(key, el, list) {
   if (!list.length) return;
-  if (!IO || !el) { PLAYED[key] = true; release(list); return; }
-  el.__rel = () => { if (PLAYED[key]) return; PLAYED[key] = true; release(list); };
+  if (!IO || !el) { release(list, key); return; }
+  let started = false;
+  el.__rel = () => { if (started || PLAYED[key]) return; started = true; release(list, key); };
   IO.observe(el);
 }
 /* draw(animate) builds one card. Plays when it first scrolls into view, or right away after a chart/table toggle. */
@@ -67,7 +76,7 @@ function playCard(key, el, draw) {
   const force = !!FORCE[key]; delete FORCE[key];
   if (REDUCE || !el || (!force && PLAYED[key])) { draw(false); return; }
   const list = withAnims(() => draw(true));
-  if (force) { PLAYED[key] = true; release(list); } else arm(key, el, list);
+  if (force) { if (IO && el.__rel) { IO.unobserve(el); el.__rel = null; } release(list, key); } else arm(key, el, list);
 }
 function tableAnims(host) {
   Array.from(host.querySelectorAll('tr')).forEach((r, i) => mk(r, [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: MOT.list, delay: Math.min(i, 8) * MOT.listStag * .6, easing: EASE, fill: 'backwards' }));
@@ -76,7 +85,7 @@ function countUp(el, to, fmt, dur, delay) {
   if (REDUCE) return;
   let d = delay; el.textContent = fmt(0);
   const run = () => { const t0 = performance.now() + d; (function f(n) { const p = Math.min(1, Math.max(0, (n - t0) / dur)), e = 1 - Math.pow(1 - p, 3); el.textContent = fmt(to * e); if (p < 1) requestAnimationFrame(f); })(performance.now()); };
-  if (PEND) PEND.push({ a: { effect: { updateTiming: t => { d = t.delay; } }, play: run }, delay: delay });
+  if (PEND) PEND.push({ a: { effect: { updateTiming: t => { d = t.delay; } }, play: run }, delay: delay, dur: dur });
   else run();
 }
 document.addEventListener('touchstart', () => {}, { passive: true });   /* lets :active press feedback work on iPhone */
@@ -364,7 +373,8 @@ function renderHome() {
     (top.length ? top.slice(0, 5).map(c => catRow(c[0], c[1], spent, r, false)).join('') : '<div class="empty">No spending in this period.</div>') + '</div></div>' + footer();
   drawHomeCharts(cur, inc, spent);
 }
-function drawHomeCharts(cur, inc, spent) {
+function homeStats() { const cur = sel(periodRange(S.period)); return { cur: cur, inc: sumBy(cur, 'Income'), spent: sumBy(cur, 'Expense') }; }
+function drawBarsCard() {
   const md = monthlyData(), host = $('#barsHost');
   playCard('home:bars', host.parentNode, animate => {
     if (S.tableView) {
@@ -376,9 +386,10 @@ function drawHomeCharts(cur, inc, spent) {
         i => '<b>' + mLabelFull(md.keys[i]) + '</b><i style="background:' + C_INCOME + '"></i>Income ' + m2(md.inc[i]) + '<br><i style="background:' + C_SPEND + '"></i>Spending ' + m2(md.exp[i]) + '<br>Net ' + m2(md.inc[i] - md.exp[i]), animate);
     }
   });
-  playCard('home:spendCard', $('#spendCard'), animate => drawCatBreakdown('spendCard', S.spendTable, cur, 'Expense', spent, inc, animate));
-  playCard('home:incCard', $('#incCard'), animate => drawCatBreakdown('incCard', S.incTable, cur, 'Income', inc, inc, animate));
 }
+function drawSpendCard() { const s = homeStats(); playCard('home:spendCard', $('#spendCard'), animate => drawCatBreakdown('spendCard', S.spendTable, s.cur, 'Expense', s.spent, s.inc, animate)); }
+function drawIncCard() { const s = homeStats(); playCard('home:incCard', $('#incCard'), animate => drawCatBreakdown('incCard', S.incTable, s.cur, 'Income', s.inc, s.inc, animate)); }
+function drawHomeCharts() { drawBarsCard(); drawSpendCard(); drawIncCard(); }
 
 /* Spending / income by category: a table or a donut, with the total in the middle */
 const pct1 = v => (v * 100).toFixed(1) + '%';
@@ -686,9 +697,9 @@ document.addEventListener('click', e => {
     case 'closeSheet': closeSheet(); break;
     case 'openCat': openCategory(v); break;
     case 'drillSort': openCategory(drill.name, v); break;
-    case 'toggleSpendTable': S.spendTable = !S.spendTable; FORCE['home:spendCard'] = true; render(); break;
-    case 'toggleIncTable': S.incTable = !S.incTable; FORCE['home:incCard'] = true; render(); break;
-    case 'toggleTable': S.tableView = !S.tableView; FORCE['home:bars'] = true; render(); break;
+    case 'toggleSpendTable': S.spendTable = !S.spendTable; b.textContent = S.spendTable ? 'Chart' : 'Table'; hideTip(); FORCE['home:spendCard'] = true; drawSpendCard(); break;
+    case 'toggleIncTable': S.incTable = !S.incTable; b.textContent = S.incTable ? 'Chart' : 'Table'; hideTip(); FORCE['home:incCard'] = true; drawIncCard(); break;
+    case 'toggleTable': S.tableView = !S.tableView; b.textContent = S.tableView ? 'Chart' : 'Table'; hideTip(); FORCE['home:bars'] = true; drawBarsCard(); break;
     case 'type': S.type = v; S.limit = 60; renderActivity(true); break;
     case 'sort': S.sort = v; renderActivity(true); break;
     case 'more': S.limit += 60; renderActivity(true); break;
@@ -700,7 +711,7 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', e => { if (e.target.id === 'dFrom' || e.target.id === 'dTo') { pend = { id: 'custom' }; markPeriod(); } });
 document.addEventListener('contextmenu', e => { if (!e.target.closest('input, textarea')) e.preventDefault(); });
-let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (S.data && $('#sheetWrap').classList.contains('hidden') && !$('#app').classList.contains('hidden')) render(); }, 150); });
+let rz, lastW = innerWidth; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => { if (innerWidth === lastW) return; lastW = innerWidth; if (S.data && $('#sheetWrap').classList.contains('hidden') && !$('#app').classList.contains('hidden')) render(); }, 150); });
 
 /* ---------- loading ---------- */
 const apiUrl = () => CONFIG.API_URL + (CONFIG.API_URL.indexOf('?') < 0 ? '?' : '&') + 'key=' + encodeURIComponent(localStorage.getItem('fin_key') || '');
@@ -715,7 +726,7 @@ async function refresh() {
     const nsig = sig(j), same = S.settle && S.data && S.sig === nsig;
     S.updatedAt = Date.now(); S.status = ''; S.settle = false;
     if (same) return;   /* nothing changed: leave the screen, and its animations, alone */
-    Object.keys(PLAYED).forEach(k => delete PLAYED[k]); S.sig = nsig; ingest(j); showApp();
+    resetPlayed(); S.sig = nsig; ingest(j); showApp();
   } catch (err) {
     if (String(err.message).indexOf('Bad key') >= 0) { localStorage.removeItem('fin_key'); showSetup('That key was not accepted. Enter it again.'); return; }
     S.status = S.data ? 'Offline, showing saved data' : ''; S.settle = false; if (S.data) render(); else showSetup('Could not load your data: ' + err.message);
